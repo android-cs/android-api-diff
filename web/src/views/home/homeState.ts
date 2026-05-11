@@ -324,7 +324,10 @@ export const useSharedHomeState = createSharedComposable(() => {
     if (!urlBuilder.value) return;
     const builder = urlBuilder.value;
     // 数组作为矩阵列，按行遍历，优先访问每个大版本的头部的小版本
-    const maxRows = androidVersionList.reduce((m, v) => Math.max(m, v.tags.length), 0);
+    const maxRows = androidVersionList.reduce(
+      (m, v) => Math.max(m, v.tags.length),
+      0,
+    );
     for (let row = 0; row < maxRows; row++) {
       for (const version of androidVersionList) {
         if (row >= version.tags.length) continue;
