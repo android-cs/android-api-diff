@@ -43,7 +43,7 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   const { addMember, enterStruct, exitStruct, structs, clearUseless } =
     useStructEditor();
   listener.enterClassDeclaration = (ctx) => {
-    enterStruct(ctx.identifier().getText());
+    enterStruct(ctx.identifier().getText(), ctx.identifier().start.line);
   };
   listener.exitClassDeclaration = exitStruct;
   listener.enterConstructorDeclaration = (ctx) => {
@@ -87,7 +87,7 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
     });
   };
   listener.enterInterfaceDeclaration = (ctx) => {
-    enterStruct(ctx.identifier().getText());
+    enterStruct(ctx.identifier().getText(), ctx.identifier().start.line);
   };
   listener.exitInterfaceDeclaration = exitStruct;
   listener.enterInterfaceMethodDeclaration = (ctx) => {

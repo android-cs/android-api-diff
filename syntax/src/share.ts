@@ -7,6 +7,7 @@ export interface ClassMember {
 
 export interface ClassStruct {
   name: string;
+  loc: number;
   members: ClassMember[];
   children?: ClassStruct[];
 }
@@ -20,9 +21,10 @@ export const useStructEditor = () => {
   const tempAllStructs: TempClassStruct[] = [];
   const structs: TempClassStruct[] = [];
   let currentStruct: TempClassStruct | undefined;
-  const enterStruct = (name: string) => {
+  const enterStruct = (name: string, loc: number) => {
     const v: TempClassStruct = {
       name,
+      loc,
       members: [],
       children: [],
     };

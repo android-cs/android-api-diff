@@ -17,7 +17,7 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
   const { addMember, enterStruct, exitStruct, structs, clearUseless } =
     useStructEditor();
   listener.enterInterfaceDeclaration = (ctx) => {
-    enterStruct(ctx.IDENTIFIER().getText());
+    enterStruct(ctx.IDENTIFIER().getText(), ctx.IDENTIFIER().symbol.line);
   };
   listener.exitInterfaceDeclaration = exitStruct;
   listener.enterMethodDeclaration = (ctx) => {
