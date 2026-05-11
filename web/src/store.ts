@@ -8,9 +8,10 @@ import pLimit from 'p-limit';
 import { computed, shallowReactive, shallowRef } from 'vue';
 import { emptyArray } from './utils/constant';
 import { fixFilePath, mirrorContentBaseUrl } from './utils/url';
+import defer * as syntax from '@ikun/syntax';
 
-const syntaxMod = () => import('@ikun/syntax');
-setTimeout(syntaxMod, 3000);
+// preload syntax
+setTimeout(async () => syntax, 3000);
 
 export const fileStructsMap = shallowReactive<Record<string, ClassStruct[]>>(
   {},
@@ -36,9 +37,9 @@ export const pullStructsByUrl = async (
     let list: ClassStruct[] = [];
     if (text.startsWith('404:')) {
     } else if (url.endsWith('.aidl')) {
-      list = (await syntaxMod()).getAIDLStructList(text);
+      list = syntax.getAIDLStructList(text);
     } else if (url.endsWith('.java')) {
-      list = (await syntaxMod()).getJavaStructList(text);
+      list = syntax.getJavaStructList(text);
     } else {
       // unsupported file type
     }
