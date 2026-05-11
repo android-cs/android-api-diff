@@ -8,11 +8,9 @@ export default createRouter({
       // /?url=1&name=2&prop=3
       path: '/',
       component: homeFc,
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (to) => {
         if (to.query.ref) {
-          next(`/i/${to.query.ref}`);
-        } else {
-          next();
+          return `/i/${to.query.ref}`;
         }
       },
     },
