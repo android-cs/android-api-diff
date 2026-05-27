@@ -8,7 +8,7 @@ const props = defineProps<{
   future?: boolean;
 }>();
 
-const { urlBuilder, getDiffResult } = useSharedHomeState();
+const { urlBuilder, getDiffResult, searchFromData } = useSharedHomeState();
 const diffResult = computed(() => getDiffResult(props.tag));
 
 const title = computed<string | undefined>(() => {
@@ -26,7 +26,11 @@ const sourceUrl = computed<string | undefined>(() => {
   const t = urlBuilder.value?.templateUrl;
   if (!t) return '';
   const u = t[0] + props.tag + t[1];
-  const loc = diffResult.value?.members?.[0]?.loc;
+  const loc =
+    diffResult.value?.members?.[0]?.loc ??
+    (!searchFromData.value.targetProp
+      ? diffResult.value?.target?.loc
+      : undefined);
   if (loc) {
     return getSourceUrlWithLine(u, loc);
   }

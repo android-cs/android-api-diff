@@ -259,6 +259,7 @@ export const useSharedHomeState = createSharedComposable(() => {
         const r: DiffResultItem = {
           tag,
           structs,
+          target,
           members,
           typeDesc,
           typeColor,
