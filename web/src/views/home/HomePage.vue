@@ -8,14 +8,10 @@ import { useSharedHomeState } from './homeState';
 
 const title = document.title;
 const {
-  actualMainInput,
   handleDiff,
   handleExample,
   isCanParsedUrl,
-  isRefMode,
-  switchRefMode,
-  searchName,
-  searchProp,
+  searchRef,
   stopDiff,
   androidVersionColors,
 } = useSharedHomeState();
@@ -29,7 +25,7 @@ const {
         <div flex gap-8px>
           <div
             v-for="example in exampleList"
-            :key="example.title"
+            :key="example"
             @click="handleExample(example)"
             text-12px
             bg-gray-100
@@ -39,7 +35,7 @@ const {
             transition-colors
             hover="bg-gray-200"
           >
-            {{ example.title }}
+            {{ example }}
           </div>
         </div>
       </div>
@@ -58,27 +54,11 @@ const {
       </a>
     </div>
     <div flex gap-24px items-center>
-      <div title="switch search mode">
-        <SvgIcon
-          name="exchange"
-          size-24px
-          cursor-pointer
-          transition-colors
-          rounded-4px
-          hover="color-[rgb(from_currentColor_r_g_b_/_50%)] bg-gray-100"
-          active="bg-gray-200"
-          @click="switchRefMode"
-        />
-      </div>
       <input
-        flex="[4]"
+        flex-1
         type="text"
-        v-model="actualMainInput"
-        :placeholder="
-          isRefMode
-            ? `Please input Java/AIDL Member Reference`
-            : `Please input Java/AIDL file url`
-        "
+        v-model="searchRef"
+        placeholder="Please input Java/AIDL Member Reference"
         outline-none
         transition-colors
         b-1px
@@ -92,51 +72,6 @@ const {
         :disabled="handleDiff.loading"
         @keyup.enter="handleDiff.invoke()"
       />
-      <div
-        v-if="!isRefMode"
-        flex="~ [3]"
-        gap-12px
-        items-center
-        :class="{
-          'op-75': !isCanParsedUrl,
-        }"
-      >
-        <input
-          flex="[1]"
-          max-w-320px
-          type="text"
-          v-model="searchName"
-          placeholder="interface or class name"
-          outline-none
-          transition-colors
-          b-1px
-          b-solid
-          b-gray-200
-          hover="b-gray-400"
-          rounded-4px
-          px-8px
-          py-4px
-          text-dark-100
-          @keyup.enter="handleDiff.invoke()"
-        />
-        <input
-          flex="[1]"
-          type="text"
-          v-model="searchProp"
-          placeholder="method or prop name"
-          outline-none
-          transition-colors
-          b-1px
-          b-solid
-          b-gray-200
-          hover="b-gray-400"
-          rounded-4px
-          px-8px
-          py-4px
-          text-dark-100
-          @keyup.enter="handleDiff.invoke()"
-        />
-      </div>
       <div
         @click="handleDiff.loading ? stopDiff() : handleDiff.invoke()"
         px-12px

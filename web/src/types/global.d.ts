@@ -10,14 +10,6 @@ interface VersionUrlBuilder {
   templateUrl: [string, string];
 }
 
-interface ExampleItem {
-  title: string;
-  url: string;
-  targetName: string;
-  propName: string;
-  refName: string;
-}
-
 interface DiffResultItem {
   tag: string;
   structs: import('@ikun/syntax').ClassStruct[];

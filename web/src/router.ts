@@ -5,7 +5,6 @@ export default createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      // /?url=1&name=2&prop=3
       path: '/',
       component: homeFc,
       beforeEnter: (to) => {

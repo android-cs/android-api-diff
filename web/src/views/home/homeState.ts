@@ -9,12 +9,7 @@ import { colors, findStructByName, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
 import { emptyArray } from '@/utils/constant';
 import { getVersionUrlBuilder } from '@/utils/url';
-import {
-  createSharedComposable,
-  useLocalStorage,
-  watchDebounced,
-  watchImmediate,
-} from '@vueuse/core';
+import { createSharedComposable, watchImmediate } from '@vueuse/core';
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -26,36 +21,6 @@ if (import.meta.hot) {
 
 const androidOrderTags = androidVersionList.flatMap((v) => v.tags);
 
-const MODE = {
-  FILE: 'file',
-  REF: 'ref',
-} as const;
-
-const modeKey = 'mode';
-const getLastMode = () => {
-  const mode = localStorage.getItem(modeKey);
-  switch (mode) {
-    case MODE.FILE:
-      return MODE.FILE;
-    case MODE.REF:
-      return MODE.REF;
-    default:
-      return MODE.REF;
-  }
-};
-
-type ModeType = (typeof MODE)[keyof typeof MODE];
-
-interface UrlParams {
-  // /?url=1&name=2&prop=3
-  url?: string;
-  name?: string;
-  prop?: string;
-
-  // /i/IActivityTaskManager#getTasks
-  ref?: string;
-}
-
 export const ANDROID_PREFIX_LEN = 'android-'.length;
 
 export const NOT_FOUND_TYPE_COLOR = '#00000080';
@@ -64,120 +29,30 @@ export const useSharedHomeState = createSharedComposable(() => {
   const route = useRoute();
   const router = useRouter();
 
-  const params = computed<UrlParams>({
-    get: () => {
-      if (route.path === '/') {
-        return {
-          url: route.query.url as string | undefined,
-          name: route.query.name as string | undefined,
-          prop: route.query.prop as string | undefined,
-        };
-      }
-      if (route.fullPath.startsWith('/i/')) {
-        return {
-          ref: route.fullPath.substring('/i/'.length) || undefined,
-        };
-      }
-      return {};
-    },
-    set: (v: UrlParams) => {
-      if (v.ref) {
-        router.replace('/i/' + v.ref);
-      } else {
-        const query = Object.fromEntries(
-          Object.entries(v).filter(([_, v]) => v),
-        );
-        router.replace({
-          path: '/',
-          query,
-        });
-      }
-    },
-  });
-  const searchUrl = computed({
-    get: () => params.value.url || '',
-    set: (v: string) => {
-      params.value = { ...params.value, url: v };
-    },
-  });
-  const searchName = computed({
-    get: () => params.value.name || '',
-    set: (v: string) => {
-      params.value = { ...params.value, name: v };
-    },
-  });
-  const searchProp = computed({
-    get: () => params.value.prop || '',
-    set: (v: string) => {
-      params.value = { ...params.value, prop: v };
-    },
-  });
-  watch(searchUrl, () => {
-    if (!searchUrl.value) {
-      searchName.value = '';
-    }
-  });
-  watch(searchName, () => {
-    if (!searchName.value) {
-      searchProp.value = '';
-    }
-  });
-  watchDebounced(searchUrl, (v) => {
-    if (v.match(/\w\.(java)|(aidl)\b/)) {
-      searchName.value = v.split('/').at(-1)!.replace(/\..+$/g, '');
-    }
-  });
   const searchRef = computed({
-    get: () => params.value.ref || '',
+    get: () => {
+      if (route.fullPath.startsWith('/i/')) {
+        return route.fullPath.substring('/i/'.length);
+      }
+      return '';
+    },
     set: (v: string) => {
-      params.value = { ...params.value, ref: v };
+      if (v) {
+        router.replace('/i/' + v);
+      } else {
+        router.replace('/');
+      }
     },
   });
-
-  const mode = useLocalStorage<ModeType>(modeKey, getLastMode());
-  const isRefMode = computed({
-    get: () => mode.value === MODE.REF,
-    set: (v: boolean) => {
-      mode.value = v ? MODE.REF : MODE.FILE;
-    },
-  });
-  if (searchRef.value) {
-    isRefMode.value = true;
-  } else if (searchUrl.value) {
-    isRefMode.value = false;
-  }
 
   const rawTitle = document.title;
   onScopeDispose(() => (document.title = rawTitle));
   watchImmediate(
-    computed(() => {
-      if (isRefMode.value) {
-        return searchRef.value;
-      }
-      return [searchName.value, searchProp.value].filter(Boolean).join('.');
-    }),
+    computed(() => searchRef.value),
     (v) => {
       document.title = v || rawTitle;
     },
   );
-
-  const switchRefMode = () => {
-    isRefMode.value = !isRefMode.value;
-    params.value = {};
-  };
-
-  const actualMainInput = computed({
-    get() {
-      return isRefMode.value ? searchRef.value : searchUrl.value;
-    },
-    set(v: string) {
-      if (isRefMode.value) {
-        searchRef.value = v;
-      } else {
-        searchUrl.value = v;
-      }
-    },
-  });
 
   const emptySearchFromData: SearchFromData = {
     targetUrl: '',
@@ -186,15 +61,7 @@ export const useSharedHomeState = createSharedComposable(() => {
   };
 
   const searchFromData = useEqualComputed<SearchFromData>(() => {
-    if (isRefMode.value) {
-      return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
-    } else {
-      return {
-        targetUrl: searchUrl.value,
-        targetName: searchName.value,
-        targetProp: searchProp.value,
-      };
-    }
+    return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
   });
 
   const urlBuilder = useEqualComputed(() =>
@@ -316,11 +183,9 @@ export const useSharedHomeState = createSharedComposable(() => {
 
   const handleDiff = useTask(async () => {
     const s = signal;
-    if (isRefMode.value) {
-      while (aidlJavaFiles.value.length === 0) {
-        await new Promise((r) => setTimeout(r));
-        if (s.signal.aborted) return;
-      }
+    while (aidlJavaFiles.value.length === 0) {
+      await new Promise((r) => setTimeout(r));
+      if (s.signal.aborted) return;
     }
     if (!urlBuilder.value) return;
     const builder = urlBuilder.value;
@@ -339,19 +204,9 @@ export const useSharedHomeState = createSharedComposable(() => {
   });
   setTimeout(handleDiff.invoke);
 
-  const handleExample = (item: ExampleItem) => {
+  const handleExample = (refName: string) => {
     if (handleDiff.loading) return;
-    if (isRefMode.value) {
-      params.value = {
-        ref: item.refName,
-      };
-    } else {
-      params.value = {
-        url: item.url,
-        name: item.targetName,
-        prop: item.propName,
-      };
-    }
+    searchRef.value = refName;
     setTimeout(handleDiff.invoke, 300);
   };
 
@@ -372,17 +227,12 @@ export const useSharedHomeState = createSharedComposable(() => {
   );
 
   return {
-    isRefMode,
-    actualMainInput,
     searchFromData,
     isCanParsedUrl,
     diffResultList,
     diffTypeReult,
     handleDiff,
-    searchName,
-    searchProp,
     searchRef,
-    switchRefMode,
     handleExample,
     stopDiff,
     getDiffResult,
