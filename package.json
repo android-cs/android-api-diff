@@ -31,23 +31,16 @@
     "vue": "3.5.34",
     "vue-router": "5.0.6"
   },
-  "engineStrict": true,
-  "engines": {
-    "node": ">=24",
-    "pnpm": ">=10"
-  },
   "devEngines": {
     "runtime": {
       "name": "node",
+      "version": "24",
       "onFail": "error"
     },
     "packageManager": {
       "name": "pnpm",
+      "version": "11.5.0",
       "onFail": "error"
     }
-  },
-  "volta": {
-    "node": "24.11.1",
-    "pnpm": "11.0.9"
   }
 }
