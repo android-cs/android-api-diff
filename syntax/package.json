@@ -6,8 +6,5 @@
     ".": {
       "import": "./src/index.ts"
     }
-  },
-  "volta": {
-    "extends": "../package.json"
   }
 }
