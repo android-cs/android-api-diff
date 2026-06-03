@@ -16,7 +16,7 @@ const androidAliasMap: Record<string, string> = {
 
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
 const xssiPrefix = `)]}'\n`;
-const manualTagMirrors = [
+export const manualTagMirrors = [
   [
     'android-16.0.0_r4',
     'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',

@@ -1,3 +1,5 @@
+import { manualTagMirrors } from './android.data';
+
 const sourceBaseurl = 'https://android.googlesource.com/';
 // https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android11-d1-release/apex/Android.bp
 // https://android.googlesource.com/platform/frameworks/layoutlib/+/refs/tags/android-16.0.0_r3/README
@@ -39,12 +41,11 @@ const mirrorContentRegs = [
 ];
 
 export const getMirrorContentUrl = (filePath: string): string => {
-  const android16R4Prefix = 'android-16.0.0_r4/';
-  if (filePath.startsWith(android16R4Prefix)) {
-    return (
-      'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/' +
-      filePath.substring(android16R4Prefix.length)
-    );
+  for (const [tag, baseUrl] of manualTagMirrors) {
+    const tagPrefix = `${tag}/`;
+    if (filePath.startsWith(tagPrefix)) {
+      return baseUrl + filePath.substring(tagPrefix.length);
+    }
   }
   return mirrorContentBaseUrl + filePath;
 };
