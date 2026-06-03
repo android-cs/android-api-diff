@@ -7,7 +7,7 @@ import type { ClassStruct } from '@ikun/syntax';
 import pLimit from 'p-limit';
 import { computed, shallowReactive, shallowRef } from 'vue';
 import { emptyArray } from './utils/constant';
-import { fixFilePath, mirrorContentBaseUrl } from './utils/url';
+import { fixFilePath, getMirrorContentUrl } from './utils/url';
 import defer * as syntax from '@ikun/syntax';
 
 // preload syntax
@@ -26,7 +26,7 @@ export const pullStructsByUrl = async (
 ): Promise<ClassStruct[]> => {
   const temp = fileStructsMap[filePath];
   if (temp) return temp;
-  const url = mirrorContentBaseUrl + filePath;
+  const url = getMirrorContentUrl(filePath);
   const list = await getOrSetStructCache(filePath, async () => {
     const text = await limit(() => {
       if (signal.signal.aborted) {

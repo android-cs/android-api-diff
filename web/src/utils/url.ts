@@ -38,6 +38,17 @@ const mirrorContentRegs = [
   /\/aosp\-mirror\/platform_frameworks_base\/[^\/]+(.*)$/g,
 ];
 
+export const getMirrorContentUrl = (filePath: string): string => {
+  const android16R4Prefix = 'android-16.0.0_r4/';
+  if (filePath.startsWith(android16R4Prefix)) {
+    return (
+      'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/' +
+      filePath.substring(android16R4Prefix.length)
+    );
+  }
+  return mirrorContentBaseUrl + filePath;
+};
+
 export const fixFilePath = (filePath: string): string => {
   const a1 = filePath.indexOf(';');
   if (a1 >= 0) {

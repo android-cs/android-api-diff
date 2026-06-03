@@ -16,6 +16,13 @@ const androidAliasMap: Record<string, string> = {
 
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
 const xssiPrefix = `)]}'\n`;
+const manualTagMirrors = [
+  [
+    'android-16.0.0_r4',
+    'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',
+  ],
+] as const;
+const customAvailableTags = manualTagMirrors.map(([tag]) => tag);
 
 interface IGoogleSourceTagsResponse {
   [tag: string]: {
@@ -50,6 +57,7 @@ const githubTags = await fetch(
       .map((v) => v.ref.substring('refs/tags/'.length))
       .filter((v) => tagReg.test(v));
   });
+const availableTags = Array.from(new Set([...githubTags, ...customAvailableTags]));
 
 const versionTags: Record<string, string[]> = {};
 googleTags.forEach((v) => {
@@ -73,8 +81,8 @@ const androidVersionList = Object.entries(versionTags)
       const rb = Number(b.split('_r')[1]);
       return ra - rb;
     });
-    const futureTags = alltag.filter((v) => !githubTags.includes(v));
-    const tags = alltag.filter((v) => githubTags.includes(v));
+    const futureTags = alltag.filter((v) => !availableTags.includes(v));
+    const tags = alltag.filter((v) => availableTags.includes(v));
     return {
       version,
       alias: androidAliasMap[version],
