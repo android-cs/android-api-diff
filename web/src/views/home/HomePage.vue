@@ -44,7 +44,7 @@ const {
         <div text-14px>{{ estimateDesc }}</div>
       </div>
       <a
-        href="https://github.com/lisonge/android-api-diff"
+        href="https://github.com/android-cs/android-api-diff"
         target="_blank"
         text-black
         transition-color
