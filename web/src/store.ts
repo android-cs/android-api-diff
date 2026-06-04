@@ -101,7 +101,7 @@ setTimeout(async () => {
 
 const aidlFileNameRegs = [/^I[A-Z].*/g, /\.I[A-Z].*/g];
 
-export const searchFilePathByName = (name: string): string | undefined => {
+const searchFilePathByName = (name: string): string | undefined => {
   name = fixFilePath(name.trim());
   if (!name) return;
   if (name.endsWith('.java') || name.endsWith('.aidl')) {
