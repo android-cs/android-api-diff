@@ -19,18 +19,26 @@ const title = computed<string | undefined>(() => {
   if (!d) return;
   if (d.typeDesc) return d.typeDesc;
   if (d.notFound) return `Not Found File`;
-  return 'No Found Prop';
+  if (searchFromData.value.targetKind === 'file') return 'Found File';
+  if (searchFromData.value.targetKind === 'class') {
+    return d.target ? 'Found Class' : 'Not Found Class';
+  }
+  if (!d.target) return 'Not Found Class';
+  return 'Not Found Prop';
 });
 const notFound = computed(() => diffResult.value?.notFound);
 const sourceUrl = computed<string | undefined>(() => {
   const t = urlBuilder.value?.templateUrl;
   if (!t) return '';
   const u = t[0] + props.tag + t[1];
-  const loc =
-    diffResult.value?.members?.[0]?.loc ??
-    (!searchFromData.value.targetProp
-      ? diffResult.value?.target?.loc
-      : undefined);
+  const loc = (() => {
+    if (searchFromData.value.targetKind === 'member') {
+      return diffResult.value?.members?.[0]?.loc;
+    }
+    if (searchFromData.value.targetKind === 'class') {
+      return diffResult.value?.target?.loc;
+    }
+  })();
   if (loc) {
     return getSourceUrlWithLine(u, loc);
   }

@@ -105,6 +105,21 @@ export const findStructByName = (
   }
 };
 
+export const findStructByPath = (
+  list: ClassStruct[] | undefined,
+  paths: string[],
+): ClassStruct | undefined => {
+  if (!list?.length || paths.length === 0) return;
+  let currentList: ClassStruct[] | undefined = list;
+  let current: ClassStruct | undefined;
+  for (const name of paths) {
+    current = currentList?.find((v) => v.name === name);
+    if (!current) return;
+    currentList = current.children;
+  }
+  return current;
+};
+
 import { isEqual } from 'lodash-es';
 
 export const useEqualComputed = <T>(fn: () => T): ComputedRef<T> => {

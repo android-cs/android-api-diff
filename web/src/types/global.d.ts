@@ -25,8 +25,9 @@ interface DiffTypeItem {
   typeColor: string;
   tagRanges: string[][];
 }
+type SearchTargetKind = 'file' | 'class' | 'member';
 interface SearchFromData {
   targetUrl: string;
-  targetName: string;
-  targetProp: string;
+  targetPaths: string[];
+  targetKind: SearchTargetKind;
 }

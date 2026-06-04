@@ -99,14 +99,20 @@ setTimeout(async () => {
 // IActivityManager.
 // android.app.IActivityManager
 
-const aidlFileNameRegs = [/^I[A-Z].*/g, /\.I[A-Z].*/g];
+const targetUrlPrefix =
+  'https://cs.android.com/android/platform/superproject/+/android-latest-release:frameworks/base/';
+
+const aidlFileNameRegs = [/^I[A-Z].*/, /\.I[A-Z].*/];
 
 const searchFilePathByName = (name: string): string | undefined => {
-  name = fixFilePath(name.trim());
+  name = fixFilePath(name.trim()).replaceAll('\\', '/').replace(/^\/+/, '');
+  if (name.startsWith('frameworks/base/')) {
+    name = name.substring('frameworks/base/'.length);
+  }
   if (!name) return;
   if (name.endsWith('.java') || name.endsWith('.aidl')) {
     const a = `/${name}`;
-    return aidlJavaFiles.value.find((v) => v.endsWith(a));
+    return aidlJavaFiles.value.find((v) => v === name || v.endsWith(a));
   }
   const perfAidl = aidlFileNameRegs.some((reg) => name.match(reg));
   name = name.replaceAll('.', '/');
@@ -126,75 +132,123 @@ const searchFilePathByName = (name: string): string | undefined => {
   return aidlJavaFiles.value.find((v) => v.endsWith(a));
 };
 
+interface FileTarget {
+  filePath: string;
+  targetPaths: string[];
+}
+
+const sourceFileReg = /\.(java|aidl)$/;
+const propReg = /^[_0-9a-zA-Z]+/;
+
+const getTargetUrl = (filePath: string): string => {
+  return targetUrlPrefix + filePath;
+};
+
+const getFileStructName = (filePath: string): string => {
+  return filePath.split('/').at(-1)!.replace(sourceFileReg, '');
+};
+
+const getMayFileRefNames = (name: string): string[] => {
+  const r = new Set<string>([name]);
+  const parts = name.split('.');
+  const lastPart = parts.at(-1);
+  if (lastPart?.endsWith('Hidden')) {
+    parts[parts.length - 1] = lastPart.substring(
+      0,
+      lastPart.length - 'Hidden'.length,
+    );
+    r.add(parts.join('.'));
+  }
+  return Array.from(r);
+};
+
+const getPropName = (name: string): string => {
+  return name.match(propReg)?.[0] || '';
+};
+
+const isLikelyMemberName = (name: string): boolean => {
+  if (!name) return false;
+  return /^[a-z_]/.test(name) || /^[A-Z0-9_]+$/.test(name);
+};
+
+const resolveFileTargets = (name: string): FileTarget[] => {
+  name = name.replaceAll('$', '.').replace(/\.+$/g, '').trim();
+  if (!name) return [];
+  const parts = name.split('.').filter(Boolean);
+  const res: FileTarget[] = [];
+  const seen = new Set<string>();
+  for (let i = parts.length; i > 0; i--) {
+    const fileRef = parts.slice(0, i).join('.');
+    const suffix = parts.slice(i);
+    for (const mayFileRef of getMayFileRefNames(fileRef)) {
+      const filePath = searchFilePathByName(mayFileRef);
+      if (!filePath) continue;
+      const targetPaths = [getFileStructName(filePath), ...suffix];
+      const key = `${filePath}\n${targetPaths.join('.')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      res.push({
+        filePath,
+        targetPaths,
+      });
+    }
+  }
+  return res;
+};
+
+const createSearchFromData = (
+  filePath: string,
+  targetPaths: string[],
+  targetKind: SearchFromData['targetKind'],
+): SearchFromData => {
+  return {
+    targetUrl: getTargetUrl(filePath),
+    targetPaths,
+    targetKind,
+  };
+};
+
 export const searchFilePathByRefName = (
   name: string,
 ): SearchFromData | undefined => {
   name = name.trim();
   if (!name) return;
-  for (const [mayClass, mayProp] of getMayClassAndPropNames(name)) {
-    const filePath = searchFilePathByName(mayClass);
-    if (!filePath) continue;
-    return {
-      targetUrl:
-        `https://cs.android.com/android/platform/superproject/+/android-latest-release:frameworks/base/` +
-        filePath,
-      targetName: mayClass.split('.').at(-1)!,
-      targetProp: mayProp,
-    };
-  }
-};
 
-// com.android.internal.app.IAppOpsService
-// com.android.internal.app.IAppOpsService#setMode
-// android.content.pm.IPackageManager#getInstalledPackages(int, int)
-// AppOpsManagerHidden.OP_POST_NOTIFICATION
-const propReg = /^[_0-9a-zA-Z]+/g;
-const getMayClassAndPropNames = (name: string): [string, string][] => {
-  const res: [string, string][] = [];
-  let tempName = '';
-  let tempProp = '';
-  const append = () => {
-    if (!tempName) return;
-    propReg.lastIndex = 0;
-    tempProp = tempProp.match(propReg)?.[0] || '';
-    getMayClassNames(tempName).forEach((className) => {
-      if (!res.some(([c, p]) => c === className && p === tempProp)) {
-        res.push([className, tempProp]);
-      }
-    });
-  };
-  if (name.includes('#')) {
-    [tempName, tempProp] = name.split('#', 2);
-    append();
-  } else if (name.includes('.')) {
-    const i = name.lastIndexOf('.');
-    tempName = name.substring(0, i);
-    tempProp = name.substring(i + 1);
-    append();
-    tempName = name;
-    tempProp = '';
-    append();
-  } else {
-    tempName = name;
-    tempProp = '';
-    append();
-  }
-  return res;
-};
-
-// android.content.pm.IPackageManager.A -> [android.content.pm.IPackageManager.A, android.content.pm.IPackageManager]
-// android.content.pm.PackageInfoHidden -> [android.content.pm.PackageInfoHidden, android.content.pm.PackageInfo]
-const getMayClassNames = (name: string): string[] => {
-  const r = new Set<string>([name]);
-  if (name.endsWith('Hidden')) {
-    r.add(name.substring(0, name.length - 'Hidden'.length));
-  }
-  const parts = name.split('.');
-  for (let i = parts.length - 1; i > 0; i--) {
-    const lastPart = parts[i];
-    if (lastPart[0] >= 'A' && lastPart[0] <= 'Z') {
-      r.add(parts.slice(0, i + 1).join('.'));
+  const fileName = fixFilePath(name);
+  if (sourceFileReg.test(fileName)) {
+    const filePath = searchFilePathByName(fileName);
+    if (filePath) {
+      return createSearchFromData(filePath, [], 'file');
     }
   }
-  return Array.from(r).sort((a, b) => b.length - a.length);
+
+  let className = name;
+  let propName = '';
+  if (name.includes('#')) {
+    const parts = name.split('#', 2);
+    className = parts[0];
+    propName = getPropName(parts[1] || '');
+  } else if (name.includes('.')) {
+    const i = name.lastIndexOf('.');
+    const mayPropName = getPropName(name.substring(i + 1));
+    if (isLikelyMemberName(mayPropName)) {
+      className = name.substring(0, i);
+      propName = mayPropName;
+    }
+  }
+
+  if (propName) {
+    for (const target of resolveFileTargets(className)) {
+      return createSearchFromData(
+        target.filePath,
+        [...target.targetPaths, propName],
+        'member',
+      );
+    }
+    return;
+  }
+
+  for (const target of resolveFileTargets(className)) {
+    return createSearchFromData(target.filePath, target.targetPaths, 'class');
+  }
 };

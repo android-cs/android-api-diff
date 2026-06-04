@@ -5,7 +5,7 @@ import {
   pullStructsByUrl,
   searchFilePathByRefName,
 } from '@/store';
-import { colors, findStructByName, useEqualComputed, useTask } from '@/utils';
+import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
 import { emptyArray } from '@/utils/constant';
 import { getVersionUrlBuilder } from '@/utils/url';
@@ -56,8 +56,8 @@ export const useSharedHomeState = createSharedComposable(() => {
 
   const emptySearchFromData: SearchFromData = {
     targetUrl: '',
-    targetName: '',
-    targetProp: '',
+    targetPaths: [],
+    targetKind: 'file',
   };
 
   const searchFromData = useEqualComputed<SearchFromData>(() => {
@@ -93,33 +93,44 @@ export const useSharedHomeState = createSharedComposable(() => {
   const diffResultList = computed<DiffResultItem[]>(() => {
     const builder = urlBuilder.value;
     if (!builder?.filePath) return emptyArray;
-    const targetName = searchFromData.value.targetName;
-    const propName = searchFromData.value.targetProp;
-    if (!targetName || !isCanParsedUrl.value) return emptyArray;
+    const targetKind = searchFromData.value.targetKind;
+    const targetPaths = searchFromData.value.targetPaths;
+    if (!isCanParsedUrl.value) return emptyArray;
+    if (targetKind !== 'file' && targetPaths.length === 0) return emptyArray;
     return androidOrderTags
       .map((tag) => {
         const filePath = tag + builder.filePath;
-        const structs = fileStructsMap[tag + builder.filePath];
+        const structs = fileStructsMap[filePath];
         if (!structs) return;
         let typeDesc = '';
-        let typeColor = NOT_FOUND_TYPE_COLOR; // not found file
-        const target = findStructByName(structs, targetName);
+        const notFound = notFoundFileMap[filePath];
+        let typeColor = notFound ? NOT_FOUND_TYPE_COLOR : '#000';
+        let target: DiffResultItem['target'];
         let members: DiffResultItem['members'] | undefined;
-        if (target) {
-          typeColor = '#000'; // not found prop
-          if (!propName) {
-            // only search class
+
+        if (!notFound) {
+          if (targetKind === 'file') {
             typeColor = colors[0];
+          } else if (targetKind === 'class') {
+            target = findStructByPath(structs, targetPaths);
+            if (target) {
+              typeColor = colors[0];
+            }
           } else {
-            members = target.members.filter((v) => v.name === propName);
-            if (members.length > 0) {
-              typeDesc = members
-                .sort(
-                  (a, b) => (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
-                )
-                .map((v) => v.type)
-                .join('\n');
-              typeColor = getCachedTypeColor(typeDesc);
+            const propName = targetPaths.at(-1);
+            target = findStructByPath(structs, targetPaths.slice(0, -1));
+            if (target && propName) {
+              members = target.members.filter((v) => v.name === propName);
+              if (members.length > 0) {
+                typeDesc = members
+                  .sort(
+                    (a, b) =>
+                      (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
+                  )
+                  .map((v) => v.type)
+                  .join('\n');
+                typeColor = getCachedTypeColor(typeDesc);
+              }
             }
           }
         }
@@ -130,7 +141,7 @@ export const useSharedHomeState = createSharedComposable(() => {
           members,
           typeDesc,
           typeColor,
-          notFound: notFoundFileMap[filePath],
+          notFound,
         };
         return r;
       })
@@ -146,7 +157,9 @@ export const useSharedHomeState = createSharedComposable(() => {
       const res = getDiffResult(tag);
       let typeItem: DiffTypeItem | undefined;
       if (res) {
-        typeItem = list.find((v) => v.typeDesc === res.typeDesc);
+        typeItem = list.find(
+          (v) => v.typeDesc === res.typeDesc && v.typeColor === res.typeColor,
+        );
         if (!typeItem) {
           typeItem = {
             typeDesc: res.typeDesc,
