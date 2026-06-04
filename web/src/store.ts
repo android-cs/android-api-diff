@@ -79,7 +79,7 @@ export const exampleList = [
 export const aidlJavaFiles = shallowRef<string[]>([]);
 setTimeout(async () => {
   const text = await persistentFetch(
-    'https://raw.githubusercontent.com/android-cs/16/refs/heads/main/aidl_java_files.txt',
+    'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/aidl_java_files.txt',
   );
   const files = text.split('\n').sort();
   const normalFiles: string[] = [];
