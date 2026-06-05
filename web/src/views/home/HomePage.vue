@@ -50,12 +50,14 @@ const {
 
 const searchHistory = ref(readSearchHistory());
 const isSearchInputFocused = ref(false);
+const isSearchHistoryPanelOpen = ref(false);
 const stickyDiffResultRef = ref<HTMLElement>();
 const isDiffResultSticky = ref(false);
 
 const showSearchHistory = computed(
   () =>
     isSearchInputFocused.value &&
+    isSearchHistoryPanelOpen.value &&
     !isDiffResultSticky.value &&
     searchHistory.value.length > 0,
 );
@@ -87,13 +89,34 @@ const saveValidSearchHistory = () => {
 };
 
 const handleRunDiff = async () => {
+  isSearchHistoryPanelOpen.value = false;
   saveValidSearchHistory();
   await handleDiff.invoke();
   saveValidSearchHistory();
 };
 
+const handleSearchInputFocus = () => {
+  isSearchInputFocused.value = true;
+};
+
+const handleSearchInputClick = () => {
+  isSearchInputFocused.value = true;
+  isSearchHistoryPanelOpen.value = true;
+};
+
+const handleSearchInputInput = () => {
+  if (!isSearchInputFocused.value) return;
+  isSearchHistoryPanelOpen.value = true;
+};
+
+const handleSearchInputBlur = () => {
+  isSearchInputFocused.value = false;
+  isSearchHistoryPanelOpen.value = false;
+};
+
 const handleSelectSearchHistory = async (ref: string) => {
   isSearchInputFocused.value = false;
+  isSearchHistoryPanelOpen.value = false;
   await setSearchRef(ref);
   saveValidSearchHistory();
   await handleDiff.invoke();
@@ -168,9 +191,10 @@ const handleClearLocalCache = async () => {
           py-4px
           text-dark-100
           :disabled="handleDiff.loading"
-          @focus="isSearchInputFocused = true"
-          @click="isSearchInputFocused = true"
-          @blur="isSearchInputFocused = false"
+          @focus="handleSearchInputFocus"
+          @click="handleSearchInputClick"
+          @input="handleSearchInputInput"
+          @blur="handleSearchInputBlur"
           @keyup.enter="handleRunDiff()"
         />
         <div
