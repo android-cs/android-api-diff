@@ -211,12 +211,6 @@ export const useSharedHomeState = createSharedComposable(() => {
   });
   setTimeout(handleDiff.invoke);
 
-  const handleExample = (refName: string) => {
-    if (handleDiff.loading) return;
-    searchRef.value = refName;
-    setTimeout(handleDiff.invoke, 300);
-  };
-
   const androidVersionColors = useEqualComputed<Record<string, string[]>>(
     () => {
       const map: Record<string, string[]> = {};
@@ -240,7 +234,6 @@ export const useSharedHomeState = createSharedComposable(() => {
     diffTypeReult,
     handleDiff,
     searchRef,
-    handleExample,
     stopDiff,
     getDiffResult,
     urlBuilder,

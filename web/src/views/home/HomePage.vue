@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SvgIcon from '@/components/SvgIcon.vue';
-import { estimateDesc, exampleList } from '@/store';
+import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
 import TagCard from '@/views/home/TagCard.vue';
 import DiffResultList from './DiffResultList.vue';
@@ -9,7 +9,6 @@ import { useSharedHomeState } from './homeState';
 const title = document.title;
 const {
   handleDiff,
-  handleExample,
   isCanParsedUrl,
   searchRef,
   stopDiff,
@@ -20,25 +19,7 @@ const {
   <div font-github-mono p-12px text-14px flex flex-col class="[--gap:8px]">
     <div mb="--gap" flex items-center gap-24px>
       <div text-20px font-400>{{ title }}</div>
-      <div flex-1 flex items-center gap-8px>
-        <div font-500>Example</div>
-        <div flex gap-8px>
-          <div
-            v-for="example in exampleList"
-            :key="example"
-            @click="handleExample(example)"
-            text-12px
-            bg-gray-100
-            rounded-4px
-            px-4px
-            cursor-pointer
-            transition-colors
-            hover="bg-gray-200"
-          >
-            {{ example }}
-          </div>
-        </div>
-      </div>
+      <div flex-1></div>
       <div v-if="estimateDesc" flex items-center gap-4px>
         <SvgIcon name="database" size-20px />
         <div text-14px>{{ estimateDesc }}</div>

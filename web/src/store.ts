@@ -70,12 +70,6 @@ export const estimateDesc = computed(() => {
   return `${(usage / 1024 / 1024).toFixed(2)} MB`;
 });
 
-export const exampleList = [
-  'IActivityTaskManager.getTasks',
-  'ITaskStackListener.onTaskMovedToFront',
-  'IUserManager.getUsers',
-];
-
 export const aidlJavaFiles = shallowRef<string[]>([]);
 setTimeout(async () => {
   const text = await persistentFetch(
