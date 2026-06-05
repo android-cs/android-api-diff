@@ -4,12 +4,16 @@ import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
 import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
-import { useEventListener } from '@vueuse/core';
+import { useEventListener, useStorage } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
 
-const SEARCH_HISTORY_STORAGE_KEY = 'android-api-diff:search-history:v1';
+const DEFAULT_SEARCH_HISTORY = [
+  'IActivityTaskManager.getTasks',
+  'ITaskStackListener.onTaskMovedToFront',
+  'IUserManager.getUsers',
+];
 const MAX_SEARCH_HISTORY = 10;
 
 const normalizeSearchHistory = (value: unknown): string[] => {
@@ -27,16 +31,6 @@ const normalizeSearchHistory = (value: unknown): string[] => {
   return list;
 };
 
-const readSearchHistory = (): string[] => {
-  try {
-    return normalizeSearchHistory(
-      JSON.parse(localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY) || '[]'),
-    );
-  } catch {
-    return [];
-  }
-};
-
 const title = document.title;
 const {
   handleDiff,
@@ -48,7 +42,24 @@ const {
   androidVersionColors,
 } = useSharedHomeState();
 
-const searchHistory = ref(readSearchHistory());
+const searchHistory = useStorage<string[]>(
+  'android-api-diff:search-history:v1',
+  () => [...DEFAULT_SEARCH_HISTORY],
+  undefined,
+  {
+    flush: 'sync',
+    serializer: {
+      read: (raw) => {
+        try {
+          return normalizeSearchHistory(JSON.parse(raw));
+        } catch {
+          return [...DEFAULT_SEARCH_HISTORY];
+        }
+      },
+      write: (value) => JSON.stringify(normalizeSearchHistory(value)),
+    },
+  },
+);
 const isSearchInputFocused = ref(false);
 const isSearchHistoryPanelOpen = ref(false);
 const stickyDiffResultRef = ref<HTMLElement>();
@@ -62,20 +73,8 @@ const showSearchHistory = computed(
     searchHistory.value.length > 0,
 );
 
-const persistSearchHistory = () => {
-  if (searchHistory.value.length === 0) {
-    localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
-    return;
-  }
-  localStorage.setItem(
-    SEARCH_HISTORY_STORAGE_KEY,
-    JSON.stringify(searchHistory.value),
-  );
-};
-
 const clearSearchHistory = () => {
   searchHistory.value = [];
-  persistSearchHistory();
 };
 
 const saveValidSearchHistory = () => {
@@ -85,7 +84,6 @@ const saveValidSearchHistory = () => {
     ref,
     ...searchHistory.value.filter((item) => item !== ref),
   ].slice(0, MAX_SEARCH_HISTORY);
-  persistSearchHistory();
 };
 
 const handleRunDiff = async () => {
@@ -125,7 +123,6 @@ const handleSelectSearchHistory = async (ref: string) => {
 
 const removeSearchHistory = (ref: string) => {
   searchHistory.value = searchHistory.value.filter((item) => item !== ref);
-  persistSearchHistory();
 };
 
 const updateStickyState = () => {
