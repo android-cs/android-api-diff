@@ -13,12 +13,6 @@ import { createSharedComposable, watchImmediate } from '@vueuse/core';
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-if (import.meta.hot) {
-  import.meta.hot.accept(() => {
-    location.reload();
-  });
-}
-
 const androidOrderTags = androidVersionList.flatMap((v) => v.tags);
 
 export const ANDROID_PREFIX_LEN = 'android-'.length;
