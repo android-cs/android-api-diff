@@ -4,21 +4,119 @@ import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
 import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
+import { useEventListener } from '@vueuse/core';
+import { computed, onMounted, ref } from 'vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
+
+const SEARCH_HISTORY_STORAGE_KEY = 'android-api-diff:search-history:v1';
+const MAX_SEARCH_HISTORY = 10;
+
+const normalizeSearchHistory = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const ref = item.trim();
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    list.push(ref);
+    if (list.length >= MAX_SEARCH_HISTORY) break;
+  }
+  return list;
+};
+
+const readSearchHistory = (): string[] => {
+  try {
+    return normalizeSearchHistory(
+      JSON.parse(localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY) || '[]'),
+    );
+  } catch {
+    return [];
+  }
+};
 
 const title = document.title;
 const {
   handleDiff,
   isCanParsedUrl,
+  isValidSearchRef,
   searchRef,
+  setSearchRef,
   stopDiff,
   androidVersionColors,
 } = useSharedHomeState();
 
+const searchHistory = ref(readSearchHistory());
+const isSearchInputFocused = ref(false);
+const stickyDiffResultRef = ref<HTMLElement>();
+const isDiffResultSticky = ref(false);
+
+const showSearchHistory = computed(
+  () =>
+    isSearchInputFocused.value &&
+    !isDiffResultSticky.value &&
+    searchHistory.value.length > 0,
+);
+
+const persistSearchHistory = () => {
+  if (searchHistory.value.length === 0) {
+    localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(
+    SEARCH_HISTORY_STORAGE_KEY,
+    JSON.stringify(searchHistory.value),
+  );
+};
+
+const clearSearchHistory = () => {
+  searchHistory.value = [];
+  persistSearchHistory();
+};
+
+const saveValidSearchHistory = () => {
+  const ref = searchRef.value.trim();
+  if (!ref || !isValidSearchRef.value) return;
+  searchHistory.value = [
+    ref,
+    ...searchHistory.value.filter((item) => item !== ref),
+  ].slice(0, MAX_SEARCH_HISTORY);
+  persistSearchHistory();
+};
+
+const handleRunDiff = async () => {
+  saveValidSearchHistory();
+  await handleDiff.invoke();
+  saveValidSearchHistory();
+};
+
+const handleSelectSearchHistory = async (ref: string) => {
+  isSearchInputFocused.value = false;
+  await setSearchRef(ref);
+  saveValidSearchHistory();
+  await handleDiff.invoke();
+  saveValidSearchHistory();
+};
+
+const removeSearchHistory = (ref: string) => {
+  searchHistory.value = searchHistory.value.filter((item) => item !== ref);
+  persistSearchHistory();
+};
+
+const updateStickyState = () => {
+  const rect = stickyDiffResultRef.value?.getBoundingClientRect();
+  isDiffResultSticky.value = !!rect && rect.top <= 0;
+};
+onMounted(updateStickyState);
+useEventListener(window, 'scroll', updateStickyState, { passive: true });
+useEventListener(window, 'resize', updateStickyState);
+
 const handleClearLocalCache = async () => {
   if (!window.confirm('Do you want to clear local data?')) return;
   await clearLocalCache();
+  clearSearchHistory();
   skipNextAutoDiffOnReload();
   window.location.reload();
 };
@@ -52,26 +150,105 @@ const handleClearLocalCache = async () => {
       </a>
     </div>
     <div flex gap-24px items-center>
-      <input
-        flex-1
-        type="text"
-        v-model="searchRef"
-        placeholder="Please input Java/AIDL Member Reference"
-        outline-none
-        transition-colors
-        b-1px
-        b-solid
-        b-gray-200
-        hover="b-gray-400"
-        rounded-4px
-        px-8px
-        py-4px
-        text-dark-100
-        :disabled="handleDiff.loading"
-        @keyup.enter="handleDiff.invoke()"
-      />
+      <div relative flex-1 min-w-0>
+        <input
+          w-full
+          box-border
+          type="text"
+          v-model="searchRef"
+          placeholder="Please input Java/AIDL Member Reference"
+          outline-none
+          transition-colors
+          b-1px
+          b-solid
+          b-gray-200
+          hover="b-gray-400"
+          rounded-4px
+          px-8px
+          py-4px
+          text-dark-100
+          :disabled="handleDiff.loading"
+          @focus="isSearchInputFocused = true"
+          @click="isSearchInputFocused = true"
+          @blur="isSearchInputFocused = false"
+          @keyup.enter="handleRunDiff()"
+        />
+        <div
+          v-if="showSearchHistory"
+          absolute
+          left-0
+          right-0
+          z-20
+          bg-white
+          b-1px
+          b-solid
+          b-gray-200
+          rounded-4px
+          shadow
+          style="top: calc(100% + 4px)"
+          @mousedown.prevent
+        >
+          <ul
+            m-0
+            p-8px
+            list-none
+            flex
+            flex-wrap
+            gap-8px
+            max-h-160px
+            overflow-y-auto
+          >
+            <li
+              v-for="item in searchHistory"
+              :key="item"
+              max-w-full
+              min-w-0
+              flex
+              items-center
+              gap-8px
+              b-1px
+              b-solid
+              b-gray-200
+              rounded-4px
+              px-8px
+              py-4px
+              cursor-pointer
+              select-none
+              bg-gray-50
+              hover="bg-gray-100 b-gray-400"
+              transition-colors
+              @click="handleSelectSearchHistory(item)"
+            >
+              <span min-w-0 overflow-hidden text-ellipsis whitespace-nowrap>
+                {{ item }}
+              </span>
+              <button
+                type="button"
+                w-16px
+                h-16px
+                p-0
+                flex
+                items-center
+                justify-center
+                b-none
+                rounded-4px
+                bg-transparent
+                cursor-pointer
+                text-gray-500
+                hover="bg-gray-200 text-gray-700"
+                aria-label="Remove search history"
+                title="Remove search history"
+                @mousedown.prevent.stop
+                @click.stop="removeSearchHistory(item)"
+              >
+                x
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
       <div
-        @click="handleDiff.loading ? stopDiff() : handleDiff.invoke()"
+        @click="handleDiff.loading ? stopDiff() : handleRunDiff()"
         px-12px
         rounded-xs
         flex
@@ -92,7 +269,7 @@ const handleClearLocalCache = async () => {
         <div>{{ handleDiff.loading ? `STOP` : `DIFF` }}</div>
       </div>
     </div>
-    <div pt="--gap" sticky top-0 bg-white>
+    <div ref="stickyDiffResultRef" pt="--gap" sticky top-0 bg-white>
       <DiffResultList />
     </div>
     <div mb="--gap" flex gap-16px overflow-scroll hidden-scrollbar>

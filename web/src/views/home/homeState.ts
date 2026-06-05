@@ -35,6 +35,14 @@ export const useSharedHomeState = createSharedComposable(() => {
   const route = useRoute();
   const router = useRouter();
 
+  const setSearchRef = async (v: string) => {
+    if (v) {
+      await router.replace('/i/' + v);
+    } else {
+      await router.replace('/');
+    }
+  };
+
   const searchRef = computed({
     get: () => {
       if (route.fullPath.startsWith('/i/')) {
@@ -43,11 +51,7 @@ export const useSharedHomeState = createSharedComposable(() => {
       return '';
     },
     set: (v: string) => {
-      if (v) {
-        router.replace('/i/' + v);
-      } else {
-        router.replace('/');
-      }
+      void setSearchRef(v);
     },
   });
 
@@ -69,6 +73,7 @@ export const useSharedHomeState = createSharedComposable(() => {
   const searchFromData = useEqualComputed<SearchFromData>(() => {
     return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
   });
+  const isValidSearchRef = computed(() => !!searchFromData.value.targetUrl);
 
   const urlBuilder = useEqualComputed(() =>
     getVersionUrlBuilder(searchFromData.value.targetUrl),
@@ -247,7 +252,9 @@ export const useSharedHomeState = createSharedComposable(() => {
     diffResultList,
     diffTypeReult,
     handleDiff,
+    isValidSearchRef,
     searchRef,
+    setSearchRef,
     stopDiff,
     getDiffResult,
     urlBuilder,
