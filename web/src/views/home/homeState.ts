@@ -31,6 +31,16 @@ const consumeSkipNextAutoDiff = () => {
   return true;
 };
 
+const getPathMatchSearchRef = (v: unknown): string => {
+  if (Array.isArray(v)) return v.join('/');
+  if (typeof v === 'string') return v;
+  return '';
+};
+
+const getHashSearchRef = (v: string): string => {
+  return v.startsWith('#') ? v.substring(1) : v;
+};
+
 export const useSharedHomeState = createSharedComposable(() => {
   const route = useRoute();
   const router = useRouter();
@@ -45,10 +55,10 @@ export const useSharedHomeState = createSharedComposable(() => {
 
   const searchRef = computed({
     get: () => {
-      if (route.fullPath.startsWith('/i/')) {
-        return route.fullPath.substring('/i/'.length);
-      }
-      return '';
+      if (!route.path.startsWith('/i/')) return '';
+      const pathRef = getPathMatchSearchRef(route.params.pathMatch);
+      const hashRef = getHashSearchRef(route.hash);
+      return route.hash ? `${pathRef}#${hashRef}` : pathRef;
     },
     set: (v: string) => {
       void setSearchRef(v);
