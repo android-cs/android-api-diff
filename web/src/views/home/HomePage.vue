@@ -2,9 +2,10 @@
 import SvgIcon from '@/components/SvgIcon.vue';
 import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
+import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
 import DiffResultList from './DiffResultList.vue';
-import { useSharedHomeState } from './homeState';
+import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
 
 const title = document.title;
 const {
@@ -14,13 +15,29 @@ const {
   stopDiff,
   androidVersionColors,
 } = useSharedHomeState();
+
+const handleClearLocalCache = async () => {
+  if (!window.confirm('Do you want to clear local data?')) return;
+  await clearLocalCache();
+  skipNextAutoDiffOnReload();
+  window.location.reload();
+};
 </script>
 <template>
   <div font-github-mono p-12px text-14px flex flex-col class="[--gap:8px]">
     <div mb="--gap" flex items-center gap-24px>
       <div text-20px font-400>{{ title }}</div>
       <div flex-1></div>
-      <div v-if="estimateDesc" flex items-center gap-4px>
+      <div
+        v-if="estimateDesc"
+        flex
+        items-center
+        gap-4px
+        cursor-pointer
+        select-none
+        title="Click to clear local data"
+        @click="handleClearLocalCache"
+      >
         <SvgIcon name="database" size-20px />
         <div text-14px>{{ estimateDesc }}</div>
       </div>

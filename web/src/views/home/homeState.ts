@@ -19,6 +19,18 @@ export const ANDROID_PREFIX_LEN = 'android-'.length;
 
 export const NOT_FOUND_TYPE_COLOR = '#00000080';
 
+const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
+
+export const skipNextAutoDiffOnReload = () => {
+  sessionStorage.setItem(SKIP_NEXT_AUTO_DIFF_STATE_KEY, '1');
+};
+
+const consumeSkipNextAutoDiff = () => {
+  if (!sessionStorage.getItem(SKIP_NEXT_AUTO_DIFF_STATE_KEY)) return false;
+  sessionStorage.removeItem(SKIP_NEXT_AUTO_DIFF_STATE_KEY);
+  return true;
+};
+
 export const useSharedHomeState = createSharedComposable(() => {
   const route = useRoute();
   const router = useRouter();
@@ -209,7 +221,9 @@ export const useSharedHomeState = createSharedComposable(() => {
       }
     }
   });
-  setTimeout(handleDiff.invoke);
+  if (!consumeSkipNextAutoDiff()) {
+    setTimeout(handleDiff.invoke);
+  }
 
   const androidVersionColors = useEqualComputed<Record<string, string[]>>(
     () => {

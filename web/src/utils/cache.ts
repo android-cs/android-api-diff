@@ -68,6 +68,21 @@ export const check404File = async (filePath: string): Promise<boolean> => {
   return !!value && value.startsWith('404:');
 };
 
+export const clearLocalCache = async () => {
+  await Promise.all(
+    dbNames.map(
+      (name) =>
+        new Promise<void>((resolve, reject) => {
+          const req = indexedDB.deleteDatabase(name);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+          req.onblocked = () => resolve();
+        }),
+    ),
+  );
+  await updateStorageEstimate();
+};
+
 // delete unused databases
 indexedDB.databases().then((dbs) => {
   dbs.forEach((db) => {
