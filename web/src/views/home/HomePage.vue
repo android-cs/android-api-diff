@@ -204,17 +204,8 @@ const handleClearLocalCache = async () => {
           style="top: calc(100% + 4px)"
           @mousedown.prevent
         >
-          <ul
-            m-0
-            p-8px
-            list-none
-            flex
-            flex-wrap
-            gap-8px
-            max-h-160px
-            overflow-y-auto
-          >
-            <li
+          <div m-0 p-8px flex flex-wrap gap-8px max-h-160px overflow-y-auto>
+            <div
               v-for="item in searchHistory"
               :key="item"
               max-w-full
@@ -259,8 +250,8 @@ const handleClearLocalCache = async () => {
               >
                 x
               </button>
-            </li>
-          </ul>
+            </div>
+          </div>
         </div>
       </div>
       <div
