@@ -63,6 +63,8 @@ const searchHistory = useStorage<string[]>(
 const isSearchInputFocused = ref(false);
 const isSearchHistoryPanelOpen = ref(false);
 const stickyDiffResultRef = ref<HTMLElement>();
+const versionColorScrollRef = ref<HTMLElement>();
+const versionListScrollRef = ref<HTMLElement>();
 const isDiffResultSticky = ref(false);
 
 const showSearchHistory = computed(
@@ -128,6 +130,22 @@ const updateStickyState = () => {
 onMounted(updateStickyState);
 useEventListener(window, 'scroll', updateStickyState, { passive: true });
 useEventListener(window, 'resize', updateStickyState);
+
+const syncScrollLeft = (
+  source: HTMLElement | undefined,
+  target: HTMLElement | undefined,
+) => {
+  if (!source || !target || source.scrollLeft === target.scrollLeft) return;
+  target.scrollLeft = source.scrollLeft;
+};
+
+const syncVersionColorScroll = () => {
+  syncScrollLeft(versionColorScrollRef.value, versionListScrollRef.value);
+};
+
+const syncVersionListScroll = () => {
+  syncScrollLeft(versionListScrollRef.value, versionColorScrollRef.value);
+};
 
 const handleClearLocalCache = async () => {
   if (!window.confirm('Do you want to clear local data?')) return;
@@ -276,34 +294,61 @@ const handleClearLocalCache = async () => {
         <div>{{ handleDiff.loading ? `STOP` : `DIFF` }}</div>
       </div>
     </div>
-    <div ref="stickyDiffResultRef" pt="--gap" sticky top-0 bg-white>
+    <div ref="stickyDiffResultRef" pt="--gap" sticky top-0 z-10 bg-white>
       <DiffResultList />
+      <div
+        ref="versionColorScrollRef"
+        flex
+        gap-16px
+        overflow-x-auto
+        hidden-scrollbar
+        @scroll="syncVersionColorScroll"
+      >
+        <div
+          v-for="item in androidVersionList"
+          :key="item.version"
+          flex-1
+          min-w-120px
+        >
+          <div
+            h-2px
+            w-full
+            flex
+            :class="{
+              'bg-cyan-200': !androidVersionColors[item.version].length,
+            }"
+          >
+            <div
+              v-for="bg in androidVersionColors[item.version]"
+              :key="bg"
+              h-full
+              flex-1
+              :style="{
+                background: bg,
+              }"
+            ></div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div mb="--gap" flex gap-16px overflow-scroll hidden-scrollbar>
+    <div
+      ref="versionListScrollRef"
+      mb="--gap"
+      flex
+      gap-16px
+      overflow-x-auto
+      hidden-scrollbar
+      @scroll="syncVersionListScroll"
+    >
       <div
         v-for="item in androidVersionList"
         :key="item.version"
         flex-1
+        min-w-120px
         flex
         flex-col
         items-center
       >
-        <div
-          h-2px
-          w-full
-          flex
-          :class="{ 'bg-cyan-200': !androidVersionColors[item.version].length }"
-        >
-          <div
-            v-for="bg in androidVersionColors[item.version]"
-            :key="bg"
-            h-full
-            flex-1
-            :style="{
-              background: bg,
-            }"
-          ></div>
-        </div>
         <div text-12px leading-16px font-600 flex justify-center gap-4px>
           <div>{{ item.version }}</div>
           <div
