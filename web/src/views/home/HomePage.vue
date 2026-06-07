@@ -73,10 +73,6 @@ const showSearchHistory = computed(
     searchHistory.value.length > 0,
 );
 
-const clearSearchHistory = () => {
-  searchHistory.value = [];
-};
-
 const saveValidSearchHistory = () => {
   const ref = searchRef.value.trim();
   if (!ref || !isValidSearchRef.value) return;
@@ -136,9 +132,8 @@ useEventListener(window, 'resize', updateStickyState);
 const handleClearLocalCache = async () => {
   if (!window.confirm('Do you want to clear local data?')) return;
   await clearLocalCache();
-  clearSearchHistory();
   skipNextAutoDiffOnReload();
-  window.location.reload();
+  location.reload();
 };
 </script>
 <template>
