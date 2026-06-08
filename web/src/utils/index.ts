@@ -16,7 +16,7 @@ export const useTask = <T extends (...args: any[]) => Promise<void>>(
   fn: T,
 ): TaskHandler<T> => {
   let loading = false;
-  const loadingRef = customRef((track, trigger) => {
+  const loadingRef = customRef<boolean>((track, trigger) => {
     return {
       get() {
         track();
