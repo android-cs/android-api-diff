@@ -9,7 +9,11 @@ import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
 import { emptyArray } from '@/utils/constant';
 import { getVersionUrlBuilder } from '@/utils/url';
-import { createSharedComposable, watchImmediate } from '@vueuse/core';
+import {
+  createSharedComposable,
+  useStorage,
+  watchImmediate,
+} from '@vueuse/core';
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -20,6 +24,20 @@ export const ANDROID_PREFIX_LEN = 'android-'.length;
 export const NOT_FOUND_TYPE_COLOR = '#00000080';
 
 const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
+const DIFF_CONCURRENT_COUNT_STORAGE_KEY =
+  'android-api-diff:diff-concurrent-count:v1';
+export const DEFAULT_DIFF_CONCURRENT_COUNT = 2;
+export const MAX_DIFF_CONCURRENT_COUNT = 5;
+export const diffConcurrentCountOptions = Array.from(
+  { length: MAX_DIFF_CONCURRENT_COUNT },
+  (_, index) => index + 1,
+);
+
+const normalizeDiffConcurrentCount = (value: unknown) => {
+  const count = Number(value);
+  if (!Number.isInteger(count)) return DEFAULT_DIFF_CONCURRENT_COUNT;
+  return Math.min(Math.max(count, 1), MAX_DIFF_CONCURRENT_COUNT);
+};
 
 export const skipNextAutoDiffOnReload = () => {
   sessionStorage.setItem(SKIP_NEXT_AUTO_DIFF_STATE_KEY, '1');
@@ -44,6 +62,18 @@ const getHashSearchRef = (v: string): string => {
 export const useSharedHomeState = createSharedComposable(() => {
   const route = useRoute();
   const router = useRouter();
+  const diffConcurrentCount = useStorage<number>(
+    DIFF_CONCURRENT_COUNT_STORAGE_KEY,
+    DEFAULT_DIFF_CONCURRENT_COUNT,
+    undefined,
+    {
+      flush: 'sync',
+      serializer: {
+        read: (raw) => normalizeDiffConcurrentCount(raw),
+        write: (value) => String(normalizeDiffConcurrentCount(value)),
+      },
+    },
+  );
 
   const setSearchRef = async (v: string) => {
     if (v) {
@@ -145,8 +175,7 @@ export const useSharedHomeState = createSharedComposable(() => {
               if (members.length > 0) {
                 typeDesc = members
                   .sort(
-                    (a, b) =>
-                      (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
+                    (a, b) => (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
                   )
                   .map((v) => v.type)
                   .join('\n');
@@ -228,12 +257,24 @@ export const useSharedHomeState = createSharedComposable(() => {
       (m, v) => Math.max(m, v.tags.length),
       0,
     );
+    const tempList: Promise<unknown>[] = [];
+    const awaitTempList = async () => {
+      return Promise.all(tempList).finally(() => tempList.splice(0));
+    };
     for (let row = 0; row < maxRows; row++) {
       for (const version of androidVersionList) {
         if (row >= version.tags.length) continue;
         if (s.signal.aborted) return;
-        await pullStructsByUrl(version.tags[row] + builder.filePath, s);
+        tempList.push(
+          pullStructsByUrl(version.tags[row] + builder.filePath, s),
+        );
+        if (tempList.length >= diffConcurrentCount.value) {
+          await awaitTempList();
+        }
       }
+    }
+    if (tempList.length > 0) {
+      await awaitTempList();
     }
   });
   if (!consumeSkipNextAutoDiff()) {
@@ -269,5 +310,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     getDiffResult,
     urlBuilder,
     androidVersionColors,
+    diffConcurrentCount,
+    diffConcurrentCountOptions,
   };
 });

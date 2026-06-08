@@ -6,6 +6,7 @@ import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
 import { useEventListener, useStorage } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
+import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
 
@@ -159,6 +160,7 @@ const handleClearLocalCache = async () => {
     <div mb="--gap" flex items-center gap-24px>
       <div text-20px font-400>{{ title }}</div>
       <div flex-1></div>
+      <DiffConcurrentSelect />
       <div
         v-if="estimateDesc"
         flex
