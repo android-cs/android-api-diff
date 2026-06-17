@@ -156,7 +156,14 @@ const handleClearLocalCache = async () => {
 };
 </script>
 <template>
-  <div font-github-mono p-12px text-14px flex flex-col class="[--gap:8px]">
+  <div
+    font-github-mono
+    p-12px
+    text-14px
+    flex
+    flex-col
+    class="[--gap:8px] [--android-col-w:100px]"
+  >
     <div mb="--gap" flex items-center gap-24px>
       <div text-20px font-400>{{ title }}</div>
       <div flex-1></div>
@@ -310,7 +317,7 @@ const handleClearLocalCache = async () => {
           v-for="item in androidVersionList"
           :key="item.version"
           flex-1
-          min-w-120px
+          min-w="--android-col-w"
         >
           <div
             h-2px
@@ -346,7 +353,7 @@ const handleClearLocalCache = async () => {
         v-for="item in androidVersionList"
         :key="item.version"
         flex-1
-        min-w-120px
+        min-w="--android-col-w"
         flex
         flex-col
         items-center
