@@ -12,6 +12,7 @@ const androidAliasMap: Record<string, string> = {
   '14': 'UPSIDE_DOWN_CAKE',
   '15': 'VANILLA_ICE_CREAM',
   '16': 'BAKLAVA',
+  '17': 'CINNAMON_BUN',
 };
 
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
@@ -20,6 +21,10 @@ export const manualTagMirrors = [
   [
     'android-16.0.0_r4',
     'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',
+  ],
+  [
+    'android-17.0.0_r1',
+    'https://raw.githubusercontent.com/android-cs/17/refs/tags/r1/',
   ],
 ] as const;
 const customAvailableTags = manualTagMirrors.map(([tag]) => tag);
@@ -57,7 +62,9 @@ const githubTags = await fetch(
       .map((v) => v.ref.substring('refs/tags/'.length))
       .filter((v) => tagReg.test(v));
   });
-const availableTags = Array.from(new Set([...githubTags, ...customAvailableTags]));
+const availableTags = Array.from(
+  new Set([...githubTags, ...customAvailableTags]),
+);
 
 const versionTags: Record<string, string[]> = {};
 googleTags.forEach((v) => {
