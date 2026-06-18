@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import MSvg from '@/components/MSvg.vue';
+import MPopconfirm from '@/components/MPopconfirm.vue';
 import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
 import { clearLocalCache } from '@/utils/cache';
@@ -93,8 +94,8 @@ const syncVersionListScroll = () => {
 };
 
 const handleClearLocalCache = async () => {
-  if (!window.confirm('Do you want to clear local data?')) return;
   await clearLocalCache();
+  await new Promise((r) => setTimeout(r, 500));
   skipNextAutoDiffOnReload();
   location.reload();
 };
@@ -112,21 +113,32 @@ const handleClearLocalCache = async () => {
       <div text-20px font-400>{{ title }}</div>
       <div flex-1></div>
       <DiffConcurrentSelect />
-      <div
+      <MPopconfirm
         v-if="estimateDesc"
-        flex
-        items-center
-        gap-4px
-        cursor-pointer
-        select-none
-        title="Click to clear local data"
-        transition-color
-        hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
-        @click="handleClearLocalCache"
+        title="Clear local data?"
+        message="Cached diff data will be removed, then the page will reload."
+        confirm-text="Clear"
+        placement="bottom-end"
+        @confirm="handleClearLocalCache"
       >
-        <MSvg name="database" size-16px />
-        <div text-14px>{{ estimateDesc }}</div>
-      </div>
+        <template #trigger="{ toggle, linkPopover }">
+          <span
+            :ref="linkPopover"
+            flex
+            items-center
+            gap-4px
+            cursor-pointer
+            select-none
+            title="Click to clear local data"
+            transition-color
+            hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
+            @click="toggle"
+          >
+            <MSvg name="database" size-16px />
+            <span text-14px>{{ estimateDesc }}</span>
+          </span>
+        </template>
+      </MPopconfirm>
       <a
         href="https://github.com/lisonge/remap"
         target="_blank"
