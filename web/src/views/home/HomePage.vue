@@ -10,6 +10,7 @@ import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
 import MinSdkSelect from './MinSdkSelect.vue';
+import SourceLinkTargetSelect from './SourceLinkTargetSelect.vue';
 
 const title = document.title;
 const {
@@ -139,6 +140,7 @@ const handleClearLocalCache = async () => {
         </template>
       </MPopconfirm>
       <div flex-1></div>
+      <SourceLinkTargetSelect />
       <MinSdkSelect />
       <DiffConcurrentSelect />
       <a

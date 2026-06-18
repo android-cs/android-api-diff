@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { getSourceUrlWithLine } from '@/utils/url';
+import {
+  getGoogleSourceUrl,
+  getMirrorContentUrl,
+  getSourceUrlWithLine,
+} from '@/utils/url';
 import { computed } from 'vue';
 import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState';
 
@@ -8,7 +12,8 @@ const props = defineProps<{
   future?: boolean;
 }>();
 
-const { urlBuilder, getDiffResult, searchFromData } = useSharedHomeState();
+const { urlBuilder, getDiffResult, searchFromData, sourceLinkTarget } =
+  useSharedHomeState();
 const diffResult = computed(() => getDiffResult(props.tag));
 
 const title = computed<string | undefined>(() => {
@@ -28,9 +33,9 @@ const title = computed<string | undefined>(() => {
 });
 const notFound = computed(() => diffResult.value?.notFound);
 const sourceUrl = computed<string | undefined>(() => {
-  const t = urlBuilder.value?.templateUrl;
-  if (!t) return '';
-  const u = t[0] + props.tag + t[1];
+  const builder = urlBuilder.value;
+  if (!builder) return '';
+  const t = builder.templateUrl;
   const loc = (() => {
     if (searchFromData.value.targetKind === 'member') {
       return diffResult.value?.members?.[0]?.loc;
@@ -39,6 +44,14 @@ const sourceUrl = computed<string | undefined>(() => {
       return diffResult.value?.target?.loc;
     }
   })();
+  if (sourceLinkTarget.value === 'googlesource') {
+    const u = getGoogleSourceUrl(props.tag + builder.filePath);
+    return loc ? getSourceUrlWithLine(u, loc) : u;
+  }
+  if (sourceLinkTarget.value === 'githubusercontent') {
+    return getMirrorContentUrl(props.tag + builder.filePath);
+  }
+  const u = t[0] + props.tag + t[1];
   if (loc) {
     return getSourceUrlWithLine(u, loc);
   }

@@ -40,6 +40,22 @@ const mirrorContentRegs = [
   /\/aosp\-mirror\/platform_frameworks_base\/[^\/]+(.*)$/g,
 ];
 
+export const sourceLinkTargetOptions = [
+  'cs.android.com',
+  'googlesource',
+  'githubusercontent',
+] as const;
+export type SourceLinkTarget = (typeof sourceLinkTargetOptions)[number];
+export const DEFAULT_SOURCE_LINK_TARGET: SourceLinkTarget = 'cs.android.com';
+
+export const getGoogleSourceUrl = (filePath: string): string => {
+  const tagEnd = filePath.indexOf('/');
+  if (tagEnd < 0) return sourceBaseurl;
+  const tag = filePath.substring(0, tagEnd);
+  const sourcePath = filePath.substring(tagEnd);
+  return `${sourceBaseurl}platform/frameworks/base/+/refs/tags/${tag}${sourcePath}`;
+};
+
 export const getMirrorContentUrl = (filePath: string): string => {
   for (const [tag, baseUrl] of manualTagMirrors) {
     const tagPrefix = `${tag}/`;

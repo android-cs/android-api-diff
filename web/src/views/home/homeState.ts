@@ -8,8 +8,13 @@ import {
 import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
 import { emptyArray } from '@/utils/constants';
-import { androidApiVersionList, DEFAULT_MIN_SDK, } from '@/utils/constants';
-import { getVersionUrlBuilder } from '@/utils/url';
+import { androidApiVersionList, DEFAULT_MIN_SDK } from '@/utils/constants';
+import {
+  DEFAULT_SOURCE_LINK_TARGET,
+  getVersionUrlBuilder,
+  sourceLinkTargetOptions,
+  type SourceLinkTarget,
+} from '@/utils/url';
 import {
   createSharedComposable,
   useStorage,
@@ -26,6 +31,7 @@ const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
 const DIFF_CONCURRENT_COUNT_STORAGE_KEY =
   'android-api-diff:diff-concurrent-count:v1';
 const MIN_SDK_STORAGE_KEY = 'android-api-diff:min-sdk:v1';
+const SOURCE_LINK_TARGET_STORAGE_KEY = 'android-api-diff:source-link-target:v1';
 const SEARCH_HISTORY_STORAGE_KEY = 'android-api-diff:search-history:v1';
 const DEFAULT_SEARCH_HISTORY = [
   'IActivityTaskManager.getTasks',
@@ -42,6 +48,8 @@ export const diffConcurrentCountOptions = Array.from(
 
 export const minSdkOptions = androidApiVersionList;
 
+export { sourceLinkTargetOptions };
+
 const normalizeDiffConcurrentCount = (value: unknown) => {
   const count = Number(value);
   if (!Number.isInteger(count)) return DEFAULT_DIFF_CONCURRENT_COUNT;
@@ -51,9 +59,19 @@ const normalizeDiffConcurrentCount = (value: unknown) => {
 const normalizeMinSdk = (value: unknown) => {
   const sdk = Number(value);
   if (!Number.isInteger(sdk)) return DEFAULT_MIN_SDK;
-  const minSdk = minSdkOptions[0] ;
+  const minSdk = minSdkOptions[0];
   const maxSdk = minSdkOptions.at(-1)!;
   return Math.min(Math.max(sdk, minSdk), maxSdk);
+};
+
+const normalizeSourceLinkTarget = (value: unknown): SourceLinkTarget => {
+  if (
+    typeof value === 'string' &&
+    (sourceLinkTargetOptions as readonly string[]).includes(value)
+  ) {
+    return value as SourceLinkTarget;
+  }
+  return DEFAULT_SOURCE_LINK_TARGET;
 };
 
 const normalizeSearchHistory = (value: unknown): string[] => {
@@ -115,6 +133,18 @@ export const useSharedHomeState = createSharedComposable(() => {
       serializer: {
         read: (raw) => normalizeMinSdk(raw),
         write: (value) => String(normalizeMinSdk(value)),
+      },
+    },
+  );
+  const sourceLinkTarget = useStorage<SourceLinkTarget>(
+    SOURCE_LINK_TARGET_STORAGE_KEY,
+    DEFAULT_SOURCE_LINK_TARGET,
+    undefined,
+    {
+      flush: 'sync',
+      serializer: {
+        read: (raw) => normalizeSourceLinkTarget(raw),
+        write: (value) => normalizeSourceLinkTarget(value),
       },
     },
   );
@@ -413,5 +443,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     diffConcurrentCountOptions,
     minSdk,
     minSdkOptions,
+    sourceLinkTarget,
+    sourceLinkTargetOptions,
   };
 });
