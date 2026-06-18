@@ -1,19 +1,5 @@
 import process from 'node:process';
-
-const androidAliasMap: Record<string, string> = {
-  '8': 'O',
-  '8.1': 'O_MR1',
-  '9': 'P',
-  '10': 'Q',
-  '11': 'R',
-  '12': 'S',
-  '12.1': 'S_V2',
-  '13': 'TIRAMISU',
-  '14': 'UPSIDE_DOWN_CAKE',
-  '15': 'VANILLA_ICE_CREAM',
-  '16': 'BAKLAVA',
-  '17': 'CINNAMON_BUN',
-};
+import { androidVersionInfos } from './constants';
 
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
 const xssiPrefix = `)]}'\n`;
@@ -83,6 +69,7 @@ googleTags.forEach((v) => {
 });
 const androidVersionList = Object.entries(versionTags)
   .map<AndroidVersionItem>(([version, alltag]) => {
+    const info = androidVersionInfos.find((v) => v.version === version);
     alltag.sort((a, b) => {
       const ra = Number(a.split('_r')[1]);
       const rb = Number(b.split('_r')[1]);
@@ -92,12 +79,13 @@ const androidVersionList = Object.entries(versionTags)
     const tags = alltag.filter((v) => availableTags.includes(v));
     return {
       version,
-      alias: androidAliasMap[version],
+      alias: info?.alias ?? '',
+      apiVersion: info?.apiVersion ?? 0,
       tags,
       futureTags,
     };
   })
-  .filter((v) => Number(v.version) >= 8.0)
-  .sort((a, b) => Number(a.version) - Number(b.version));
+  .filter((v) => v.apiVersion >= 26)
+  .sort((a, b) => a.apiVersion - b.apiVersion);
 
 export default androidVersionList;

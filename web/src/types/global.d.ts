@@ -1,6 +1,7 @@
 interface AndroidVersionItem {
   version: string;
   alias: string;
+  apiVersion: number;
   tags: string[];
   futureTags: string[];
 }

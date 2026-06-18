@@ -8,6 +8,7 @@ import {
 import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
 import { emptyArray } from '@/utils/constant';
+import { androidApiVersionList } from '@/utils/constants';
 import { getVersionUrlBuilder } from '@/utils/url';
 import {
   createSharedComposable,
@@ -17,8 +18,6 @@ import {
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-const androidOrderTags = androidVersionList.flatMap((v) => v.tags);
-
 export const ANDROID_PREFIX_LEN = 'android-'.length;
 
 export const NOT_FOUND_TYPE_COLOR = '#00000080';
@@ -26,6 +25,7 @@ export const NOT_FOUND_TYPE_COLOR = '#00000080';
 const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
 const DIFF_CONCURRENT_COUNT_STORAGE_KEY =
   'android-api-diff:diff-concurrent-count:v1';
+const MIN_SDK_STORAGE_KEY = 'android-api-diff:min-sdk:v1';
 const SEARCH_HISTORY_STORAGE_KEY = 'android-api-diff:search-history:v1';
 const DEFAULT_SEARCH_HISTORY = [
   'IActivityTaskManager.getTasks',
@@ -39,11 +39,21 @@ export const diffConcurrentCountOptions = Array.from(
   { length: MAX_DIFF_CONCURRENT_COUNT },
   (_, index) => index + 1,
 );
+export const DEFAULT_MIN_SDK = androidApiVersionList[0] ?? 26;
+export const minSdkOptions = androidApiVersionList;
 
 const normalizeDiffConcurrentCount = (value: unknown) => {
   const count = Number(value);
   if (!Number.isInteger(count)) return DEFAULT_DIFF_CONCURRENT_COUNT;
   return Math.min(Math.max(count, 1), MAX_DIFF_CONCURRENT_COUNT);
+};
+
+const normalizeMinSdk = (value: unknown) => {
+  const sdk = Number(value);
+  if (!Number.isInteger(sdk)) return DEFAULT_MIN_SDK;
+  const minSdk = minSdkOptions[0] ?? DEFAULT_MIN_SDK;
+  const maxSdk = minSdkOptions.at(-1) ?? DEFAULT_MIN_SDK;
+  return Math.min(Math.max(sdk, minSdk), maxSdk);
 };
 
 const normalizeSearchHistory = (value: unknown): string[] => {
@@ -93,6 +103,18 @@ export const useSharedHomeState = createSharedComposable(() => {
       serializer: {
         read: (raw) => normalizeDiffConcurrentCount(raw),
         write: (value) => String(normalizeDiffConcurrentCount(value)),
+      },
+    },
+  );
+  const minSdk = useStorage<number>(
+    MIN_SDK_STORAGE_KEY,
+    DEFAULT_MIN_SDK,
+    undefined,
+    {
+      flush: 'sync',
+      serializer: {
+        read: (raw) => normalizeMinSdk(raw),
+        write: (value) => String(normalizeMinSdk(value)),
       },
     },
   );
@@ -172,6 +194,14 @@ export const useSharedHomeState = createSharedComposable(() => {
     getVersionUrlBuilder(searchFromData.value.targetUrl),
   );
 
+  const filteredAndroidVersionList = computed(() =>
+    androidVersionList.filter((v) => v.apiVersion >= minSdk.value),
+  );
+
+  const androidOrderTags = computed(() =>
+    filteredAndroidVersionList.value.flatMap((v) => v.tags),
+  );
+
   const isCanParsedUrl = computed(() => {
     const builder = urlBuilder.value;
     if (!builder) return false;
@@ -201,7 +231,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     const targetPaths = searchFromData.value.targetPaths;
     if (!isCanParsedUrl.value) return emptyArray;
     if (targetKind !== 'file' && targetPaths.length === 0) return emptyArray;
-    return androidOrderTags
+    return androidOrderTags.value
       .map((tag) => {
         const filePath = tag + builder.filePath;
         const structs = fileStructsMap[filePath];
@@ -256,7 +286,7 @@ export const useSharedHomeState = createSharedComposable(() => {
 
   const diffTypeReult = useEqualComputed<DiffTypeItem[]>(() => {
     const list: DiffTypeItem[] = [];
-    androidOrderTags.forEach((tag, index) => {
+    androidOrderTags.value.forEach((tag, index) => {
       const res = getDiffResult(tag);
       let typeItem: DiffTypeItem | undefined;
       if (res) {
@@ -279,7 +309,7 @@ export const useSharedHomeState = createSharedComposable(() => {
         typeItem.tagRanges.push([tag]);
         return;
       }
-      const lastTag = androidOrderTags[index - 1];
+      const lastTag = androidOrderTags.value[index - 1];
       const lastRange = typeItem.tagRanges.at(-1)!;
       if (lastRange.at(-1) === lastTag) {
         lastRange.push(tag);
@@ -305,17 +335,15 @@ export const useSharedHomeState = createSharedComposable(() => {
     }
     if (!urlBuilder.value) return;
     const builder = urlBuilder.value;
+    const versionList = filteredAndroidVersionList.value;
     // 数组作为矩阵列，按行遍历，优先访问每个大版本的头部的小版本
-    const maxRows = androidVersionList.reduce(
-      (m, v) => Math.max(m, v.tags.length),
-      0,
-    );
+    const maxRows = versionList.reduce((m, v) => Math.max(m, v.tags.length), 0);
     const tempList: Promise<unknown>[] = [];
     const awaitTempList = async () => {
       return Promise.all(tempList).finally(() => tempList.splice(0));
     };
     for (let row = 0; row < maxRows; row++) {
-      for (const version of androidVersionList) {
+      for (const version of versionList) {
         if (row >= version.tags.length) continue;
         if (s.signal.aborted) return;
         tempList.push(
@@ -350,7 +378,7 @@ export const useSharedHomeState = createSharedComposable(() => {
   const androidVersionColors = useEqualComputed<Record<string, string[]>>(
     () => {
       const map: Record<string, string[]> = {};
-      androidVersionList.forEach((v) => {
+      filteredAndroidVersionList.value.forEach((v) => {
         map[v.version] = Array.from(
           new Set(
             diffResultList.value
@@ -379,8 +407,11 @@ export const useSharedHomeState = createSharedComposable(() => {
     stopDiff,
     getDiffResult,
     urlBuilder,
+    androidVersionList: filteredAndroidVersionList,
     androidVersionColors,
     diffConcurrentCount,
     diffConcurrentCountOptions,
+    minSdk,
+    minSdkOptions,
   };
 });

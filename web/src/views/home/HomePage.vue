@@ -2,7 +2,6 @@
 import MSvg from '@/components/MSvg.vue';
 import MPopconfirm from '@/components/MPopconfirm.vue';
 import { estimateDesc } from '@/store';
-import androidVersionList from '@/utils/android.data';
 import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
 import { useEventListener } from '@vueuse/core';
@@ -10,6 +9,7 @@ import { computed, onMounted, ref } from 'vue';
 import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
+import MinSdkSelect from './MinSdkSelect.vue';
 
 const title = document.title;
 const {
@@ -22,6 +22,7 @@ const {
   removeSearchHistory,
   stopDiff,
   androidVersionColors,
+  androidVersionList,
 } = useSharedHomeState();
 
 const isSearchInputFocused = ref(false);
@@ -111,14 +112,12 @@ const handleClearLocalCache = async () => {
   >
     <div mb="--gap" flex items-center gap-24px>
       <div text-20px font-400>{{ title }}</div>
-      <div flex-1></div>
-      <DiffConcurrentSelect />
       <MPopconfirm
         v-if="estimateDesc"
         title="Clear local data?"
         message="Cached diff data will be removed, then the page will reload."
         confirm-text="Clear"
-        placement="bottom-end"
+        placement="bottom-start"
         @confirm="handleClearLocalCache"
       >
         <template #trigger="{ toggle, linkPopover }">
@@ -139,6 +138,9 @@ const handleClearLocalCache = async () => {
           </span>
         </template>
       </MPopconfirm>
+      <div flex-1></div>
+      <MinSdkSelect />
+      <DiffConcurrentSelect />
       <a
         href="https://github.com/lisonge/remap"
         target="_blank"
