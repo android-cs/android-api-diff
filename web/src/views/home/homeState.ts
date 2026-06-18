@@ -7,8 +7,8 @@ import {
 } from '@/store';
 import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
-import { emptyArray } from '@/utils/constant';
-import { androidApiVersionList } from '@/utils/constants';
+import { emptyArray } from '@/utils/constants';
+import { androidApiVersionList, DEFAULT_MIN_SDK, } from '@/utils/constants';
 import { getVersionUrlBuilder } from '@/utils/url';
 import {
   createSharedComposable,
@@ -39,7 +39,7 @@ export const diffConcurrentCountOptions = Array.from(
   { length: MAX_DIFF_CONCURRENT_COUNT },
   (_, index) => index + 1,
 );
-export const DEFAULT_MIN_SDK = androidApiVersionList[0] ?? 26;
+
 export const minSdkOptions = androidApiVersionList;
 
 const normalizeDiffConcurrentCount = (value: unknown) => {
@@ -51,8 +51,8 @@ const normalizeDiffConcurrentCount = (value: unknown) => {
 const normalizeMinSdk = (value: unknown) => {
   const sdk = Number(value);
   if (!Number.isInteger(sdk)) return DEFAULT_MIN_SDK;
-  const minSdk = minSdkOptions[0] ?? DEFAULT_MIN_SDK;
-  const maxSdk = minSdkOptions.at(-1) ?? DEFAULT_MIN_SDK;
+  const minSdk = minSdkOptions[0] ;
+  const maxSdk = minSdkOptions.at(-1)!;
   return Math.min(Math.max(sdk, minSdk), maxSdk);
 };
 

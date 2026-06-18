@@ -32,3 +32,9 @@ interface SearchFromData {
   targetPaths: string[];
   targetKind: SearchTargetKind;
 }
+
+interface AndroidVersionInfo {
+  version: string;
+  alias: string;
+  apiVersion: number;
+}

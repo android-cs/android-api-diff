@@ -1,4 +1,7 @@
-export const androidVersionInfos = [
+export const emptyArray: any[] = [];
+Object.freeze(emptyArray);
+
+export const androidVersionInfos: AndroidVersionInfo[] = [
   {
     version: '8',
     alias: 'O',
@@ -59,8 +62,21 @@ export const androidVersionInfos = [
     alias: 'CINNAMON_BUN',
     apiVersion: 37,
   },
-] as const;
+];
+
+export const DEFAULT_MIN_SDK = androidVersionInfos[0].apiVersion;
 
 export const androidApiVersionList = androidVersionInfos.map(
   ({ apiVersion }) => apiVersion,
 );
+
+export const manualTagMirrors = [
+  [
+    'android-16.0.0_r4',
+    'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',
+  ],
+  [
+    'android-17.0.0_r1',
+    'https://raw.githubusercontent.com/android-cs/17/refs/tags/r1/',
+  ],
+] as const;

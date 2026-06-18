@@ -1,19 +1,15 @@
 import process from 'node:process';
-import { androidVersionInfos } from './constants';
+import { androidVersionInfos, manualTagMirrors } from './constants';
 
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
 const xssiPrefix = `)]}'\n`;
-export const manualTagMirrors = [
-  [
-    'android-16.0.0_r4',
-    'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',
-  ],
-  [
-    'android-17.0.0_r1',
-    'https://raw.githubusercontent.com/android-cs/17/refs/tags/r1/',
-  ],
-] as const;
+
 const customAvailableTags = manualTagMirrors.map(([tag]) => tag);
+const minApiVersion = androidVersionInfos[0].apiVersion;
+const androidVersionInfoMap = new Map<
+  string,
+  (typeof androidVersionInfos)[number]
+>(androidVersionInfos.map((info) => [info.version, info]));
 
 interface IGoogleSourceTagsResponse {
   [tag: string]: {
@@ -68,8 +64,12 @@ googleTags.forEach((v) => {
   tempList.push(v);
 });
 const androidVersionList = Object.entries(versionTags)
+  .filter(([version]) => {
+    const info = androidVersionInfoMap.get(version);
+    return info !== undefined && info.apiVersion >= minApiVersion;
+  })
   .map<AndroidVersionItem>(([version, alltag]) => {
-    const info = androidVersionInfos.find((v) => v.version === version);
+    const info = androidVersionInfoMap.get(version);
     alltag.sort((a, b) => {
       const ra = Number(a.split('_r')[1]);
       const rb = Number(b.split('_r')[1]);
@@ -85,7 +85,6 @@ const androidVersionList = Object.entries(versionTags)
       futureTags,
     };
   })
-  .filter((v) => v.apiVersion >= 26)
   .sort((a, b) => a.apiVersion - b.apiVersion);
 
 export default androidVersionList;

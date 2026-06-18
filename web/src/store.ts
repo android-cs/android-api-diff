@@ -6,7 +6,7 @@ import {
 import type { ClassStruct } from 'syntax';
 import pLimit from 'p-limit';
 import { computed, shallowReactive, shallowRef } from 'vue';
-import { emptyArray } from './utils/constant';
+import { emptyArray } from './utils/constants';
 import { fixFilePath, getMirrorContentUrl } from './utils/url';
 import defer * as syntax from 'syntax';
 

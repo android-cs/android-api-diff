@@ -1,4 +1,4 @@
-import { manualTagMirrors } from './android.data';
+import { manualTagMirrors } from './constants';
 
 const sourceBaseurl = 'https://android.googlesource.com/';
 // https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android11-d1-release/apex/Android.bp
