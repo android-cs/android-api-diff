@@ -12,9 +12,9 @@ interface VersionUrlBuilder {
 
 interface DiffResultItem {
   tag: string;
-  structs: import('@ikun/syntax').ClassStruct[];
-  target: import('@ikun/syntax').ClassStruct | undefined;
-  members: import('@ikun/syntax').ClassMember[] | undefined;
+  structs: import('syntax').ClassStruct[];
+  target: import('syntax').ClassStruct | undefined;
+  members: import('syntax').ClassMember[] | undefined;
   typeDesc: string;
   typeColor: string;
   notFound: boolean;

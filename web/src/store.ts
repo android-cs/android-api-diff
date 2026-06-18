@@ -3,12 +3,12 @@ import {
   getOrSetStructCache,
   persistentFetch,
 } from '@/utils/cache';
-import type { ClassStruct } from '@ikun/syntax';
+import type { ClassStruct } from 'syntax';
 import pLimit from 'p-limit';
 import { computed, shallowReactive, shallowRef } from 'vue';
 import { emptyArray } from './utils/constant';
 import { fixFilePath, getMirrorContentUrl } from './utils/url';
-import defer * as syntax from '@ikun/syntax';
+import defer * as syntax from 'syntax';
 
 // preload syntax
 setTimeout(async () => syntax, 3000);

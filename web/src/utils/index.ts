@@ -1,4 +1,4 @@
-import type { ClassStruct } from '@ikun/syntax';
+import type { ClassStruct } from 'syntax';
 import {
   computed,
   customRef,

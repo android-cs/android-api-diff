@@ -1,7 +1,10 @@
 {
-  "name": "@ikun/syntax",
+  "name": "syntax",
   "private": true,
   "type": "module",
+  "scripts": {
+    "type-check": "tsc"
+  },
   "exports": {
     ".": {
       "import": "./src/index.ts"

@@ -1,7 +1,13 @@
 {
   "name": "web",
   "type": "module",
+  "scripts": {
+    "type-check": "vue-tsc",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "@ikun/syntax": "workspace:*"
+    "syntax": "workspace:*"
   }
 }
