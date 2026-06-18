@@ -4,63 +4,25 @@ import { estimateDesc } from '@/store';
 import androidVersionList from '@/utils/android.data';
 import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
-import { useEventListener, useStorage } from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
 import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
 import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
 
-const DEFAULT_SEARCH_HISTORY = [
-  'IActivityTaskManager.getTasks',
-  'ITaskStackListener.onTaskMovedToFront',
-  'IUserManager.getUsers',
-];
-const MAX_SEARCH_HISTORY = 20;
-
-const normalizeSearchHistory = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const list: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') continue;
-    const ref = item.trim();
-    if (!ref || seen.has(ref)) continue;
-    seen.add(ref);
-    list.push(ref);
-    if (list.length >= MAX_SEARCH_HISTORY) break;
-  }
-  return list;
-};
-
 const title = document.title;
 const {
   handleDiff,
   isCanParsedUrl,
-  isValidSearchRef,
+  searchHistory,
   searchRef,
-  setSearchRef,
+  runDiffWithSearchHistory,
+  selectSearchHistory,
+  removeSearchHistory,
   stopDiff,
   androidVersionColors,
 } = useSharedHomeState();
 
-const searchHistory = useStorage<string[]>(
-  'android-api-diff:search-history:v1',
-  () => [...DEFAULT_SEARCH_HISTORY],
-  undefined,
-  {
-    flush: 'sync',
-    serializer: {
-      read: (raw) => {
-        try {
-          return normalizeSearchHistory(JSON.parse(raw));
-        } catch {
-          return [...DEFAULT_SEARCH_HISTORY];
-        }
-      },
-      write: (value) => JSON.stringify(normalizeSearchHistory(value)),
-    },
-  },
-);
 const isSearchInputFocused = ref(false);
 const isSearchHistoryPanelOpen = ref(false);
 const stickyDiffResultRef = ref<HTMLElement>();
@@ -76,20 +38,9 @@ const showSearchHistory = computed(
     searchHistory.value.length > 0,
 );
 
-const saveValidSearchHistory = () => {
-  const ref = searchRef.value.trim();
-  if (!ref || !isValidSearchRef.value) return;
-  searchHistory.value = [
-    ref,
-    ...searchHistory.value.filter((item) => item !== ref),
-  ].slice(0, MAX_SEARCH_HISTORY);
-};
-
 const handleRunDiff = async () => {
   isSearchHistoryPanelOpen.value = false;
-  saveValidSearchHistory();
-  await handleDiff.invoke();
-  saveValidSearchHistory();
+  await runDiffWithSearchHistory();
 };
 
 const handleSearchInputFocus = () => {
@@ -114,14 +65,7 @@ const handleSearchInputBlur = () => {
 const handleSelectSearchHistory = async (ref: string) => {
   isSearchInputFocused.value = false;
   isSearchHistoryPanelOpen.value = false;
-  await setSearchRef(ref);
-  saveValidSearchHistory();
-  await handleDiff.invoke();
-  saveValidSearchHistory();
-};
-
-const removeSearchHistory = (ref: string) => {
-  searchHistory.value = searchHistory.value.filter((item) => item !== ref);
+  await selectSearchHistory(ref);
 };
 
 const updateStickyState = () => {

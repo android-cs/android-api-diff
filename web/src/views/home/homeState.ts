@@ -26,6 +26,13 @@ export const NOT_FOUND_TYPE_COLOR = '#00000080';
 const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
 const DIFF_CONCURRENT_COUNT_STORAGE_KEY =
   'android-api-diff:diff-concurrent-count:v1';
+const SEARCH_HISTORY_STORAGE_KEY = 'android-api-diff:search-history:v1';
+const DEFAULT_SEARCH_HISTORY = [
+  'IActivityTaskManager.getTasks',
+  'ITaskStackListener.onTaskMovedToFront',
+  'IUserManager.getUsers',
+];
+const MAX_SEARCH_HISTORY = 20;
 export const DEFAULT_DIFF_CONCURRENT_COUNT = 2;
 export const MAX_DIFF_CONCURRENT_COUNT = 5;
 export const diffConcurrentCountOptions = Array.from(
@@ -37,6 +44,21 @@ const normalizeDiffConcurrentCount = (value: unknown) => {
   const count = Number(value);
   if (!Number.isInteger(count)) return DEFAULT_DIFF_CONCURRENT_COUNT;
   return Math.min(Math.max(count, 1), MAX_DIFF_CONCURRENT_COUNT);
+};
+
+const normalizeSearchHistory = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const ref = item.trim();
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    list.push(ref);
+    if (list.length >= MAX_SEARCH_HISTORY) break;
+  }
+  return list;
 };
 
 export const skipNextAutoDiffOnReload = () => {
@@ -71,6 +93,24 @@ export const useSharedHomeState = createSharedComposable(() => {
       serializer: {
         read: (raw) => normalizeDiffConcurrentCount(raw),
         write: (value) => String(normalizeDiffConcurrentCount(value)),
+      },
+    },
+  );
+  const searchHistory = useStorage<string[]>(
+    SEARCH_HISTORY_STORAGE_KEY,
+    () => [...DEFAULT_SEARCH_HISTORY],
+    undefined,
+    {
+      flush: 'sync',
+      serializer: {
+        read: (raw) => {
+          try {
+            return normalizeSearchHistory(JSON.parse(raw));
+          } catch {
+            return [...DEFAULT_SEARCH_HISTORY];
+          }
+        },
+        write: (value) => JSON.stringify(normalizeSearchHistory(value)),
       },
     },
   );
@@ -114,6 +154,19 @@ export const useSharedHomeState = createSharedComposable(() => {
     return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
   });
   const isValidSearchRef = computed(() => !!searchFromData.value.targetUrl);
+
+  const saveValidSearchHistory = (value = searchRef.value) => {
+    const ref = value.trim();
+    if (!ref || !searchFilePathByRefName(ref)?.targetUrl) return;
+    searchHistory.value = [
+      ref,
+      ...searchHistory.value.filter((item) => item !== ref),
+    ].slice(0, MAX_SEARCH_HISTORY);
+  };
+
+  const removeSearchHistory = (ref: string) => {
+    searchHistory.value = searchHistory.value.filter((item) => item !== ref);
+  };
 
   const urlBuilder = useEqualComputed(() =>
     getVersionUrlBuilder(searchFromData.value.targetUrl),
@@ -281,6 +334,19 @@ export const useSharedHomeState = createSharedComposable(() => {
     setTimeout(handleDiff.invoke);
   }
 
+  const runDiffWithSearchHistory = async () => {
+    saveValidSearchHistory();
+    await handleDiff.invoke();
+    saveValidSearchHistory();
+  };
+
+  const selectSearchHistory = async (ref: string) => {
+    await setSearchRef(ref);
+    saveValidSearchHistory(ref);
+    await handleDiff.invoke();
+    saveValidSearchHistory(ref);
+  };
+
   const androidVersionColors = useEqualComputed<Record<string, string[]>>(
     () => {
       const map: Record<string, string[]> = {};
@@ -305,6 +371,10 @@ export const useSharedHomeState = createSharedComposable(() => {
     handleDiff,
     isValidSearchRef,
     searchRef,
+    searchHistory,
+    runDiffWithSearchHistory,
+    selectSearchHistory,
+    removeSearchHistory,
     setSearchRef,
     stopDiff,
     getDiffResult,
