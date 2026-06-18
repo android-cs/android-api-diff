@@ -26,11 +26,10 @@ watchEffect(() => {
 <template>
   <svg
     v-if="svgEl"
-    class="SvgIcon"
+    class="MSvg"
     ref="actualEl"
     :name="name"
-    :viewBox="svgEl.getAttribute('viewBox') || undefined"
-    :fill="svgEl.getAttribute('fill') || undefined"
+    :viewBox="svgEl.getAttribute('viewBox')!"
     block
   ></svg>
 </template>

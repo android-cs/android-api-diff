@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SvgIcon from '@/components/SvgIcon.vue';
+import MSvg from '@/components/MSvg.vue';
 import { useEventListener } from '@vueuse/core';
 import { ref } from 'vue';
 import { useSharedHomeState } from './homeState';
@@ -47,7 +47,7 @@ useEventListener(window, 'click', () => {
       @click.stop="togglePanel"
     >
       <div>{{ diffConcurrentCount }}</div>
-      <SvgIcon name="expand-more" w-16px h-16px text-gray-500 />
+      <MSvg name="expand-more" w-16px h-16px text-gray-500 />
     </div>
     <div
       v-if="isPanelOpen"
