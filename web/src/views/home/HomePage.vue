@@ -176,19 +176,41 @@ const handleClearLocalCache = async () => {
         cursor-pointer
         select-none
         title="Click to clear local data"
+        transition-color
+        hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
         @click="handleClearLocalCache"
       >
-        <SvgIcon name="database" size-20px />
+        <SvgIcon name="database" size-16px />
         <div text-14px>{{ estimateDesc }}</div>
       </div>
       <a
+        href="https://github.com/lisonge/remap"
+        target="_blank"
+        rel="noopener noreferrer"
+        flex
+        items-center
+        gap-4px
+        text-black
+        title="Open remap helper tool"
+        transition-color
+        hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
+      >
+        <SvgIcon name="github" size-16px />
+        <span text-14px>Remap</span>
+      </a>
+      <a
         href="https://github.com/android-cs/android-api-diff"
         target="_blank"
+        rel="noopener noreferrer"
+        flex
+        items-center
+        gap-4px
         text-black
         transition-color
         hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
       >
-        <SvgIcon name="github" size-20px />
+        <SvgIcon name="github" size-16px />
+        <span text-14px>Diff</span>
       </a>
     </div>
     <div flex gap-24px items-center>
