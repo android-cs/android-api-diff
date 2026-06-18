@@ -15,7 +15,7 @@ const DEFAULT_SEARCH_HISTORY = [
   'ITaskStackListener.onTaskMovedToFront',
   'IUserManager.getUsers',
 ];
-const MAX_SEARCH_HISTORY = 10;
+const MAX_SEARCH_HISTORY = 20;
 
 const normalizeSearchHistory = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
