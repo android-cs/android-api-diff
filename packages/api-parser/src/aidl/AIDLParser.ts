@@ -17,7 +17,7 @@ import {
   Token,
   type TokenStream,
 } from 'antlr4';
-import AIDLListener from './AIDLListener.js';
+import AIDLListener from './AIDLListener.ts';
 // for running tests with parameters, TODO: discuss strategy for typed parameters in CI
 // eslint-disable-next-line no-unused-vars
 type int = number;

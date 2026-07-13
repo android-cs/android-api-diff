@@ -3,7 +3,7 @@ import 'uno.css';
 import './style.css';
 import { createApp } from 'vue';
 import App from './App.vue';
-import router from './router';
+import router from './router.ts';
 
 document.documentElement.classList.add('hidden-scrollbar');
 createApp(App)

@@ -145,7 +145,7 @@ import {
   VariableDeclaratorsContext,
   VariableInitializerContext,
   VariableModifierContext,
-} from './JavaParser.js';
+} from './JavaParser.ts';
 
 /**
  * This interface defines a complete listener for a parse tree produced by

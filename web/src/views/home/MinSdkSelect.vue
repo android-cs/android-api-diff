@@ -3,7 +3,7 @@ import MOption from '@/components/MOption.vue';
 import MSelect from '@/components/MSelect.vue';
 import { androidVersionInfos } from '@/utils/constants';
 import { computed } from 'vue';
-import { useSharedHomeState } from './homeState';
+import { useSharedHomeState } from './homeState.ts';
 
 const { minSdk, minSdkOptions } = useSharedHomeState();
 

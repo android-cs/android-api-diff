@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useElementSize } from '@vueuse/core';
 import { shallowRef } from 'vue';
-import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState';
+import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState.ts';
 
 const { androidVersionList, diffTypeReult } = useSharedHomeState();
 

@@ -1,6 +1,6 @@
 // https://github.com/antlr/grammars-v4/blob/master/java/java/Java/JavaParserBase.java
 import { Parser, type TokenStream } from 'antlr4';
-import JavaParser, { RecordComponentListContext } from './JavaParser';
+import JavaParser, { RecordComponentListContext } from './JavaParser.ts';
 
 export default abstract class JavaParserBase extends Parser {
   constructor(input: TokenStream) {

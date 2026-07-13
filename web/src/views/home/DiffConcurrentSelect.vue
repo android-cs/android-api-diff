@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import MOption from '@/components/MOption.vue';
 import MSelect from '@/components/MSelect.vue';
-import { useSharedHomeState } from './homeState';
+import { useSharedHomeState } from './homeState.ts';
 
 const { diffConcurrentCount, diffConcurrentCountOptions } =
   useSharedHomeState();

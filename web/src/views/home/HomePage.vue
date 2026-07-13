@@ -8,7 +8,7 @@ import { useEventListener } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
 import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
 import DiffResultList from './DiffResultList.vue';
-import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState';
+import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState.ts';
 import MinSdkSelect from './MinSdkSelect.vue';
 import SourceLinkTargetSelect from './SourceLinkTargetSelect.vue';
 
@@ -143,6 +143,14 @@ const handleClearLocalCache = async () => {
       <SourceLinkTargetSelect />
       <MinSdkSelect />
       <DiffConcurrentSelect />
+      <RouterLink
+        to="/mcp"
+        text-black
+        transition-color
+        hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
+      >
+        MCP
+      </RouterLink>
       <a
         href="https://github.com/lisonge/remap"
         target="_blank"

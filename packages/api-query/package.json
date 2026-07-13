@@ -1,0 +1,24 @@
+{
+  "name": "@android-cs/api-query",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src/**/*.ts"
+  ],
+  "scripts": {
+    "type-check": "tsc"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    },
+    "./query": {
+      "import": "./src/query.ts"
+    }
+  },
+  "dependencies": {
+    "@android-cs/api-parser": "workspace:*",
+    "p-limit": "^7.3.0"
+  }
+}

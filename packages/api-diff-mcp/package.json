@@ -1,0 +1,21 @@
+{
+  "name": "@android-cs/api-diff-mcp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "src/**/*.ts"
+  ],
+  "bin": {
+    "android-api-diff-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "type-check": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0-beta.3",
+    "@android-cs/api-query": "workspace:*",
+    "zod": "^4.4.3"
+  }
+}

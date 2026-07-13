@@ -1,5 +1,5 @@
-import { getJavaStructList } from '../src';
-import { getFileText } from './cache';
+import { getJavaStructList } from '../src/index.ts';
+import { getFileText } from './cache.ts';
 
 const baseUrl =
   'https://android.googlesource.com/platform/frameworks/base/+/main/core/java/';

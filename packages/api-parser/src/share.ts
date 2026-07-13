@@ -1,9 +1,47 @@
-export interface ClassMember {
+export type Nullability = 'nullable' | 'non-null';
+
+export interface ClassMemberParam {
+  name?: string;
+  type: string;
+  nullability?: Nullability;
+}
+
+interface ClassMemberBase {
   name: string;
   type: string;
   loc: number;
   parameterCount?: number;
 }
+
+export interface ClassFieldMember extends ClassMemberBase {
+  kind: 'field';
+  fieldNullability?: Nullability;
+}
+
+export interface ClassConstantMember extends ClassMemberBase {
+  kind: 'constant';
+  fieldNullability?: Nullability;
+}
+
+export interface ClassMethodMember extends ClassMemberBase {
+  kind: 'method';
+  returnType: string;
+  returnNullability?: Nullability;
+  parameters: ClassMemberParam[];
+  parameterCount: number;
+}
+
+export interface ClassConstructorMember extends ClassMemberBase {
+  kind: 'constructor';
+  parameters: ClassMemberParam[];
+  parameterCount: number;
+}
+
+export type ClassMember =
+  | ClassFieldMember
+  | ClassConstantMember
+  | ClassMethodMember
+  | ClassConstructorMember;
 
 export interface ClassStruct {
   name: string;
@@ -41,6 +79,9 @@ export const useStructEditor = () => {
   const exitStruct = () => {
     currentStruct = currentStruct?.parent;
   };
+  const hasCurrentStruct = () => {
+    return !!currentStruct;
+  };
   const addMember = (value: ClassMember) => {
     if (!currentStruct) {
       throw new Error('No current struct to add member to');
@@ -56,5 +97,12 @@ export const useStructEditor = () => {
       }
     }
   };
-  return { enterStruct, exitStruct, addMember, structs, clearUseless };
+  return {
+    enterStruct,
+    exitStruct,
+    hasCurrentStruct,
+    addMember,
+    structs,
+    clearUseless,
+  };
 };

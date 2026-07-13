@@ -17,12 +17,12 @@ import {
   Token,
   type TokenStream,
 } from 'antlr4';
-import JavaParserListener from './JavaParserListener.js';
+import JavaParserListener from './JavaParserListener.ts';
 // for running tests with parameters, TODO: discuss strategy for typed parameters in CI
 // eslint-disable-next-line no-unused-vars
 // type int = number;
 
-import JavaParserBase from './JavaParserBase.js';
+import JavaParserBase from './JavaParserBase.ts';
 
 export default class JavaParser extends JavaParserBase {
   public static readonly ABSTRACT = 1;

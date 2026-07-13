@@ -13,9 +13,9 @@ interface VersionUrlBuilder {
 
 interface DiffResultItem {
   tag: string;
-  structs: import('syntax').ClassStruct[];
-  target: import('syntax').ClassStruct | undefined;
-  members: import('syntax').ClassMember[] | undefined;
+  structs: import('@android-cs/api-parser').ClassStruct[];
+  target: import('@android-cs/api-parser').ClassStruct | undefined;
+  members: import('@android-cs/api-parser').ClassMember[] | undefined;
   typeDesc: string;
   typeColor: string;
   notFound: boolean;

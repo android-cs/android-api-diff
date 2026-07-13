@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "type-check": "pnpm -F web type-check",
-    "dev": "pnpm -F web dev",
-    "build": "pnpm -F web build",
-    "preview": "pnpm -F web preview",
+    "type-check": "pnpm -r type-check",
+    "dev": "pnpm -F @android-cs/web dev",
+    "build": "pnpm -F @android-cs/web build",
+    "preview": "pnpm -F @android-cs/web preview",
     "format": "prettier --cache --write --ignore-unknown ."
   },
   "dependencies": {

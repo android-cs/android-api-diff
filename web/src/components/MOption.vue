@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue';
-import { M_SELECT_CONTEXT_KEY, type MSelectValue } from './MSelect.context';
+import { M_SELECT_CONTEXT_KEY, type MSelectValue } from './MSelect.context.ts';
 
 const props = withDefaults(
   defineProps<{

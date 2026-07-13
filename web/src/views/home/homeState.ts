@@ -20,6 +20,7 @@ import {
   useStorage,
   watchImmediate,
 } from '@vueuse/core';
+import type { ClassMember, ClassMemberParam } from '@android-cs/api-parser';
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -87,6 +88,33 @@ const normalizeSearchHistory = (value: unknown): string[] => {
     if (list.length >= MAX_SEARCH_HISTORY) break;
   }
   return list;
+};
+
+const formatNullableType = (
+  type: string,
+  nullability: ClassMemberParam['nullability'],
+) => {
+  return nullability === 'nullable' && !type.endsWith('?') ? `${type}?` : type;
+};
+
+const formatMemberParam = (param: ClassMemberParam) => {
+  return formatNullableType(param.type, param.nullability);
+};
+
+const formatMemberType = (member: ClassMember) => {
+  if (member.kind === 'method') {
+    const params = member.parameters.map(formatMemberParam).join(', ');
+    return `(${params}) -> ${formatNullableType(
+      member.returnType,
+      member.returnNullability,
+    )}`;
+  }
+  if (member.kind === 'constructor') {
+    return `(${member.parameters.map(formatMemberParam).join(', ')}) -> ${
+      member.name
+    }`;
+  }
+  return formatNullableType(member.type, member.fieldNullability);
 };
 
 export const skipNextAutoDiffOnReload = () => {
@@ -290,7 +318,7 @@ export const useSharedHomeState = createSharedComposable(() => {
                   .sort(
                     (a, b) => (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
                   )
-                  .map((v) => v.type)
+                  .map(formatMemberType)
                   .join('\n');
                 typeColor = getCachedTypeColor(typeDesc);
               }

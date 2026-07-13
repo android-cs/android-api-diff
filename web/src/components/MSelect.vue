@@ -2,7 +2,7 @@
 import MPopover from '@/components/MPopover.vue';
 import MSvg from '@/components/MSvg.vue';
 import { provide, ref, type Ref } from 'vue';
-import { M_SELECT_CONTEXT_KEY, type MSelectValue } from './MSelect.context';
+import { M_SELECT_CONTEXT_KEY, type MSelectValue } from './MSelect.context.ts';
 
 type SelectPlacement =
   | 'top'

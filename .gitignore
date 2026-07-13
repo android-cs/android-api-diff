@@ -28,6 +28,7 @@ coverage
 *.sw?
 .env
 .cache
+.tmp-mcp-screens
 
 .antlr
 *.interp

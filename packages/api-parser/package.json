@@ -1,0 +1,22 @@
+{
+  "name": "@android-cs/api-parser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src/**/*.ts",
+    "src/**/*.g4"
+  ],
+  "scripts": {
+    "test:nullability": "node scripts/nullability.test.ts",
+    "type-check": "tsc"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "antlr4": "^4.13.2"
+  }
+}

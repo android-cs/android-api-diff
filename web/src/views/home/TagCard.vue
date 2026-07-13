@@ -5,7 +5,7 @@ import {
   getSourceUrlWithLine,
 } from '@/utils/url';
 import { computed } from 'vue';
-import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState';
+import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState.ts';
 
 const props = defineProps<{
   tag: string;
