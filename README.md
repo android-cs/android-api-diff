@@ -13,22 +13,7 @@ An online tool to show Android Java/AIDL files api changes between different and
 
 ## MCP
 
-Run the local MCP server with:
-
-```sh
-pnpm -F @android-cs/api-diff-mcp start
-```
-
-Useful environment variables:
-
-- `ANDROID_API_DIFF_CACHE_DIR`: override the Node file cache directory.
-
-Tools:
-
-- `generate_android_api_code`: generate Java code for a hidden Android member API; it performs the cross-version query internally.
-- `resolve_android_api`: resolve an API name to file, target path, and target kind.
-- `query_android_api`: inspect exact cross-version signatures, tag ranges, missing reasons, and source metadata.
-- `warm_android_api_cache`: preload results for a list of API names.
+[Use android-api-diff from an MCP client](./MCP.md)
 
 ![img](https://e.gkd.li/b191a715-9014-4f43-b566-1104f6a1b1f0)
 
