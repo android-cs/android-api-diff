@@ -1,0 +1,1144 @@
+import type {
+  ClassMember,
+  ClassMemberParam,
+  Nullability,
+} from '@android-cs/api-parser';
+import { androidVersionInfos } from './constants.ts';
+import type {
+  AndroidApiCodeDeclaration,
+  AndroidApiCodeResult,
+  AndroidApiMemberResult,
+  AndroidApiQueryResult,
+  AndroidApiVersionRangeResult,
+  AndroidVersionInfo,
+} from './types.ts';
+
+interface CodeDeclarationState {
+  member: AndroidApiMemberResult;
+  signature: string;
+  requiresApi: AndroidVersionInfo;
+  deprecatedSinceApi?: AndroidVersionInfo;
+  fromTag: string;
+  toTag: string;
+}
+
+interface ApiVersionRangeVote {
+  count: number;
+  firstIndex: number;
+  lastIndex: number;
+  range: AndroidApiVersionRangeResult;
+}
+
+interface CodeSignatureSummary {
+  signature: string;
+  ranges: CodeSignatureSummaryRange[];
+  firstIndexes: Map<number, number>;
+  lastIndexes: Map<number, number>;
+}
+
+interface CodeSignatureSummaryRange {
+  fromRange: AndroidApiVersionRangeResult;
+  fromIndex: number;
+  toRange: AndroidApiVersionRangeResult;
+  toIndex: number;
+}
+
+const primitiveTypeNames = new Set([
+  'boolean',
+  'byte',
+  'char',
+  'double',
+  'float',
+  'int',
+  'long',
+  'short',
+  'void',
+]);
+
+const importBySimpleTypeName = new Map([
+  ['ArrayList', 'java.util.ArrayList'],
+  ['Collection', 'java.util.Collection'],
+  ['HashMap', 'java.util.HashMap'],
+  ['HashSet', 'java.util.HashSet'],
+  ['List', 'java.util.List'],
+  ['Map', 'java.util.Map'],
+  ['Set', 'java.util.Set'],
+  ['ArrayMap', 'android.util.ArrayMap'],
+  ['ArraySet', 'android.util.ArraySet'],
+  ['Pair', 'android.util.Pair'],
+  ['SparseArray', 'android.util.SparseArray'],
+  ['SparseBooleanArray', 'android.util.SparseBooleanArray'],
+  ['SparseIntArray', 'android.util.SparseIntArray'],
+  ['SparseLongArray', 'android.util.SparseLongArray'],
+  ['Binder', 'android.os.Binder'],
+  ['Bundle', 'android.os.Bundle'],
+  ['Handler', 'android.os.Handler'],
+  ['IBinder', 'android.os.IBinder'],
+  ['IInterface', 'android.os.IInterface'],
+  ['Looper', 'android.os.Looper'],
+  ['ParcelFileDescriptor', 'android.os.ParcelFileDescriptor'],
+  ['RemoteException', 'android.os.RemoteException'],
+  ['UserHandle', 'android.os.UserHandle'],
+  ['ComponentName', 'android.content.ComponentName'],
+  ['Context', 'android.content.Context'],
+  ['Intent', 'android.content.Intent'],
+  ['ApplicationInfo', 'android.content.pm.ApplicationInfo'],
+  ['PackageInfo', 'android.content.pm.PackageInfo'],
+  ['ParceledListSlice', 'android.content.pm.ParceledListSlice'],
+  ['ResolveInfo', 'android.content.pm.ResolveInfo'],
+  ['UserInfo', 'android.content.pm.UserInfo'],
+  ['Rect', 'android.graphics.Rect'],
+]);
+
+const javaIdentifierReg = /^[A-Za-z_$][\w$]*$/;
+const sourceFileReg = /\.(aidl|java)$/i;
+const androidTagPrefix = 'android-';
+
+const indent = (level: number) => '    '.repeat(level);
+
+const toStartVersionInfo = (
+  range: AndroidApiVersionRangeResult,
+): AndroidVersionInfo => {
+  return {
+    version: range.fromVersion,
+    alias: range.fromAlias,
+    apiVersion: range.fromApiVersion,
+  };
+};
+
+const getVersionCode = (version: AndroidVersionInfo): string => {
+  return version.alias
+    ? `Build.VERSION_CODES.${version.alias}`
+    : String(version.apiVersion);
+};
+
+const getNullableAnnotation = (
+  type: string,
+  nullability: Nullability | undefined,
+): string => {
+  if (!nullability || primitiveTypeNames.has(type)) return '';
+  return nullability === 'nullable' ? '@Nullable ' : '@NonNull ';
+};
+
+const formatAnnotatedType = (
+  type: string,
+  nullability: Nullability | undefined,
+): string => {
+  return `${getNullableAnnotation(type, nullability)}${type}`;
+};
+
+const formatParameter = (
+  parameter: ClassMemberParam,
+  index: number,
+): string => {
+  return `${formatAnnotatedType(parameter.type, parameter.nullability)} ${
+    parameter.name || `arg${index}`
+  }`;
+};
+
+const formatNullableSummaryType = (
+  type: string,
+  nullability: Nullability | undefined,
+) => {
+  return nullability === 'nullable' && !type.endsWith('?') ? `${type}?` : type;
+};
+
+const formatSummaryParameter = (parameter: ClassMemberParam) => {
+  return formatNullableSummaryType(parameter.type, parameter.nullability);
+};
+
+const formatSummaryMemberType = (member: AndroidApiMemberResult) => {
+  if (member.kind === 'method') {
+    const parameters = member.parameters.map(formatSummaryParameter).join(', ');
+    return `(${parameters}) -> ${formatNullableSummaryType(
+      member.returnType,
+      member.returnNullability,
+    )}`;
+  }
+  if (member.kind === 'constructor') {
+    return `(${member.parameters.map(formatSummaryParameter).join(', ')}) -> ${
+      member.name
+    }`;
+  }
+  return formatNullableSummaryType(member.type, member.fieldNullability);
+};
+
+const formatMemberSignature = (member: AndroidApiMemberResult): string => {
+  if ('parameters' in member) {
+    const parameters = member.parameters
+      .map((parameter) => `${parameter.type}:${parameter.nullability ?? ''}`)
+      .join(',');
+    return `${member.kind}:${member.name}(${parameters}):${
+      'returnType' in member ? member.returnType : member.name
+    }:${'returnNullability' in member ? (member.returnNullability ?? '') : ''}`;
+  }
+  return `${member.kind}:${member.name}:${member.type}:${
+    member.fieldNullability ?? ''
+  }`;
+};
+
+const formatMemberIdentityKey = (member: AndroidApiMemberResult): string => {
+  if ('parameters' in member) {
+    const parameters = member.parameters
+      .map((parameter) => parameter.type)
+      .join(',');
+    return `${member.kind}:${member.name}(${parameters}):${
+      'returnType' in member ? member.returnType : member.name
+    }`;
+  }
+  return `${member.kind}:${member.name}:${member.type}`;
+};
+
+const sortMembers = (members: AndroidApiMemberResult[]) => {
+  return [...members].sort(
+    (a, b) =>
+      getMemberSortWeight(a) - getMemberSortWeight(b) ||
+      a.name.localeCompare(b.name) ||
+      formatMemberIdentityKey(a).localeCompare(formatMemberIdentityKey(b)),
+  );
+};
+
+const getRangeSemanticKey = (range: AndroidApiVersionRangeResult): string => {
+  return JSON.stringify({
+    missingReason: range.missingReason,
+    members: sortMembers(range.members ?? []).map(formatMemberIdentityKey),
+  });
+};
+
+const cloneParameters = (
+  member: Extract<ClassMember, { parameters: unknown }>,
+) => {
+  return member.parameters.map((parameter) => ({ ...parameter }));
+};
+
+export const toAndroidApiMemberResult = (
+  member: ClassMember,
+): AndroidApiMemberResult => {
+  if (member.kind === 'method') {
+    return {
+      kind: member.kind,
+      name: member.name,
+      type: member.type,
+      returnType: member.returnType,
+      ...(member.returnNullability
+        ? { returnNullability: member.returnNullability }
+        : {}),
+      parameters: cloneParameters(member),
+    };
+  }
+  if (member.kind === 'constructor') {
+    return {
+      kind: member.kind,
+      name: member.name,
+      type: member.type,
+      parameters: cloneParameters(member),
+    };
+  }
+  return {
+    kind: member.kind,
+    name: member.name,
+    type: member.type,
+    ...(member.fieldNullability
+      ? { fieldNullability: member.fieldNullability }
+      : {}),
+  };
+};
+
+const getMemberSortWeight = (member: AndroidApiMemberResult) => {
+  if (member.kind === 'constant') return 0;
+  if (member.kind === 'field') return 1;
+  if (member.kind === 'constructor') return 2;
+  return 3;
+};
+
+const compareDeclarations = (
+  a: AndroidApiCodeDeclaration,
+  b: AndroidApiCodeDeclaration,
+) => {
+  return (
+    a.requiresApi.apiVersion - b.requiresApi.apiVersion ||
+    getMemberSortWeight(a.member) - getMemberSortWeight(b.member) ||
+    a.member.name.localeCompare(b.member.name) ||
+    formatMemberIdentityKey(a.member).localeCompare(
+      formatMemberIdentityKey(b.member),
+    )
+  );
+};
+
+const getAndroidVersionInfo = (
+  apiVersion: number,
+  range: AndroidApiVersionRangeResult,
+): AndroidVersionInfo => {
+  if (apiVersion === range.fromApiVersion) {
+    return {
+      version: range.fromVersion,
+      alias: range.fromAlias,
+      apiVersion,
+    };
+  }
+  if (apiVersion === range.toApiVersion) {
+    return {
+      version: range.toVersion,
+      alias: range.toAlias,
+      apiVersion,
+    };
+  }
+  return (
+    androidVersionInfos.find(
+      (version) => version.apiVersion === apiVersion,
+    ) ?? {
+      version: String(apiVersion),
+      alias: '',
+      apiVersion,
+    }
+  );
+};
+
+const getApiVersionsInRange = (range: AndroidApiVersionRangeResult) => {
+  const versions = androidVersionInfos.filter(
+    (version) =>
+      version.apiVersion >= range.fromApiVersion &&
+      version.apiVersion <= range.toApiVersion,
+  );
+  if (versions.length > 0) return versions;
+  return [getAndroidVersionInfo(range.fromApiVersion, range)];
+};
+
+const toApiVersionRange = (
+  info: AndroidVersionInfo,
+  range: AndroidApiVersionRangeResult,
+): AndroidApiVersionRangeResult => {
+  return {
+    fromVersion: info.version,
+    fromAlias: info.alias,
+    fromApiVersion: info.apiVersion,
+    fromTag: range.fromTag,
+    toVersion: info.version,
+    toAlias: info.alias,
+    toApiVersion: info.apiVersion,
+    toTag: range.toTag,
+    ...(range.missingReason ? { missingReason: range.missingReason } : {}),
+    ...(range.members ? { members: sortMembers(range.members) } : {}),
+  };
+};
+
+const updateApiVersionVoteRange = (
+  previous: AndroidApiVersionRangeResult,
+  next: AndroidApiVersionRangeResult,
+): AndroidApiVersionRangeResult => {
+  return {
+    ...next,
+    fromTag: previous.fromTag,
+    toTag: next.toTag,
+  };
+};
+
+const chooseApiVersionVote = (votes: ApiVersionRangeVote[]) => {
+  return votes.sort(
+    (a, b) =>
+      b.count - a.count ||
+      b.lastIndex - a.lastIndex ||
+      a.firstIndex - b.firstIndex,
+  )[0]!;
+};
+
+const collapseRangesByApiVersion = (
+  ranges: AndroidApiVersionRangeResult[],
+): AndroidApiVersionRangeResult[] => {
+  const votesByApiVersion = new Map<number, Map<string, ApiVersionRangeVote>>();
+
+  ranges.forEach((range, index) => {
+    for (const info of getApiVersionsInRange(range)) {
+      const normalizedRange = toApiVersionRange(info, range);
+      const key = getRangeSemanticKey(normalizedRange);
+      let votes = votesByApiVersion.get(info.apiVersion);
+      if (!votes) {
+        votes = new Map();
+        votesByApiVersion.set(info.apiVersion, votes);
+      }
+      const vote = votes.get(key);
+      if (vote) {
+        vote.count++;
+        vote.lastIndex = index;
+        vote.range = updateApiVersionVoteRange(vote.range, normalizedRange);
+      } else {
+        votes.set(key, {
+          count: 1,
+          firstIndex: index,
+          lastIndex: index,
+          range: normalizedRange,
+        });
+      }
+    }
+  });
+
+  return Array.from(votesByApiVersion.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, votes]) => chooseApiVersionVote(Array.from(votes.values())).range);
+};
+
+const completeDeclaration = (
+  declarations: AndroidApiCodeDeclaration[],
+  state: CodeDeclarationState,
+) => {
+  declarations.push({
+    member: state.member,
+    signature: state.signature,
+    requiresApi: state.requiresApi,
+    ...(state.deprecatedSinceApi
+      ? { deprecatedSinceApi: state.deprecatedSinceApi }
+      : {}),
+    fromTag: state.fromTag,
+    toTag: state.toTag,
+  });
+};
+
+const collectDeclarations = (
+  ranges: AndroidApiVersionRangeResult[],
+): AndroidApiCodeDeclaration[] => {
+  const active = new Map<string, CodeDeclarationState>();
+  const declarations: AndroidApiCodeDeclaration[] = [];
+
+  for (const range of ranges) {
+    const members = range.members ?? [];
+    const presentKeys = new Set(members.map(formatMemberIdentityKey));
+    const missingVersion = toStartVersionInfo(range);
+
+    for (const [key, state] of active) {
+      if (presentKeys.has(key)) continue;
+      if (missingVersion.apiVersion > state.requiresApi.apiVersion) {
+        state.deprecatedSinceApi = missingVersion;
+      }
+      completeDeclaration(declarations, state);
+      active.delete(key);
+    }
+
+    for (const member of members) {
+      const key = formatMemberIdentityKey(member);
+      const existing = active.get(key);
+      if (existing) {
+        existing.toTag = range.toTag;
+        existing.member = member;
+      } else {
+        active.set(key, {
+          member,
+          signature: member.type,
+          requiresApi: toStartVersionInfo(range),
+          fromTag: range.fromTag,
+          toTag: range.toTag,
+        });
+      }
+    }
+  }
+
+  for (const state of active.values()) {
+    completeDeclaration(declarations, state);
+  }
+
+  return declarations.sort(compareDeclarations);
+};
+
+const getDeclarationEndApiVersion = (
+  declaration: AndroidApiCodeDeclaration,
+) => {
+  return declaration.deprecatedSinceApi?.apiVersion ?? Number.POSITIVE_INFINITY;
+};
+
+const hasCrossedLifecycle = (
+  a: AndroidApiCodeDeclaration,
+  b: AndroidApiCodeDeclaration,
+) => {
+  const aStart = a.requiresApi.apiVersion;
+  const aEnd = getDeclarationEndApiVersion(a);
+  const bStart = b.requiresApi.apiVersion;
+  const bEnd = getDeclarationEndApiVersion(b);
+  return (
+    (aStart < bStart && bStart < aEnd && aEnd < bEnd) ||
+    (bStart < aStart && aStart < bEnd && bEnd < aEnd)
+  );
+};
+
+const hasComplexLifecycle = (declarations: AndroidApiCodeDeclaration[]) => {
+  const seen = new Set<string>();
+  for (const declaration of declarations) {
+    const key = formatMemberIdentityKey(declaration.member);
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  for (let i = 0; i < declarations.length; i++) {
+    for (let j = i + 1; j < declarations.length; j++) {
+      if (hasCrossedLifecycle(declarations[i]!, declarations[j]!)) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+const mergeDeclarationsByIdentity = (
+  declarations: AndroidApiCodeDeclaration[],
+) => {
+  const map = new Map<string, AndroidApiCodeDeclaration>();
+  for (const declaration of declarations) {
+    const key = formatMemberIdentityKey(declaration.member);
+    const existing = map.get(key);
+    if (existing) {
+      existing.member = declaration.member;
+      existing.toTag = declaration.toTag;
+      continue;
+    }
+    map.set(key, { ...declaration });
+  }
+  return Array.from(map.values()).sort(compareDeclarations);
+};
+
+const getJavaMethodSignatureKey = (
+  member: AndroidApiMemberResult,
+  name = member.name,
+) => {
+  if (member.kind !== 'method') return '';
+  return `${name}(${member.parameters
+    .map((parameter) => parameter.type)
+    .join(',')})`;
+};
+
+const getRemapMethodSuffix = (version: AndroidVersionInfo) => {
+  const versionSuffix = version.version.replace(/[^A-Za-z0-9_$]+/g, '_');
+  return `V${versionSuffix || version.apiVersion}`;
+};
+
+const getRemappedMethodName = (
+  declaration: AndroidApiCodeDeclaration,
+  usedMethodKeys: Set<string>,
+) => {
+  const member = declaration.member;
+  if (member.kind !== 'method') return member.name;
+
+  const suffix = getRemapMethodSuffix(declaration.requiresApi);
+  let index = 1;
+  let name = `${member.name}${suffix}`;
+  while (usedMethodKeys.has(getJavaMethodSignatureKey(member, name))) {
+    index++;
+    name = `${member.name}${suffix}_${index}`;
+  }
+  return name;
+};
+
+const applyRemapMethodNames = (
+  declarations: AndroidApiCodeDeclaration[],
+): AndroidApiCodeDeclaration[] => {
+  const groups = new Map<string, AndroidApiCodeDeclaration[]>();
+  for (const declaration of declarations) {
+    if (declaration.member.kind !== 'method') continue;
+    const key = getJavaMethodSignatureKey(declaration.member);
+    const group = groups.get(key) ?? [];
+    group.push(declaration);
+    groups.set(key, group);
+  }
+
+  const remappedDeclarations = new Set<AndroidApiCodeDeclaration>();
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+    const sortedGroup = [...group].sort(compareDeclarations);
+    for (const declaration of sortedGroup.slice(0, -1)) {
+      remappedDeclarations.add(declaration);
+    }
+  }
+
+  const usedMethodKeys = new Set<string>();
+  for (const declaration of declarations) {
+    if (
+      declaration.member.kind === 'method' &&
+      !remappedDeclarations.has(declaration)
+    ) {
+      usedMethodKeys.add(getJavaMethodSignatureKey(declaration.member));
+    }
+  }
+
+  return declarations.map((declaration) => {
+    if (declaration.member.kind !== 'method') return declaration;
+    const originalName = declaration.member.name;
+    if (!remappedDeclarations.has(declaration)) {
+      return declaration;
+    }
+
+    const name = getRemappedMethodName(declaration, usedMethodKeys);
+    const member = {
+      ...declaration.member,
+      name,
+    };
+    usedMethodKeys.add(getJavaMethodSignatureKey(member));
+    return {
+      ...declaration,
+      member,
+      remapMethodName: originalName,
+    };
+  });
+};
+
+const getTagDesc = (tag: string) => {
+  return tag.startsWith(androidTagPrefix)
+    ? tag.substring(androidTagPrefix.length)
+    : tag;
+};
+
+const getApiRangeIndexes = (ranges: AndroidApiVersionRangeResult[]) => {
+  const firstIndexes = new Map<number, number>();
+  const lastIndexes = new Map<number, number>();
+  ranges.forEach((range, index) => {
+    for (const version of getApiVersionsInRange(range)) {
+      if (!firstIndexes.has(version.apiVersion)) {
+        firstIndexes.set(version.apiVersion, index);
+      }
+      lastIndexes.set(version.apiVersion, index);
+    }
+  });
+  return { firstIndexes, lastIndexes };
+};
+
+const formatSummaryRange = (
+  range: CodeSignatureSummaryRange,
+  firstIndexes: Map<number, number>,
+  lastIndexes: Map<number, number>,
+) => {
+  const { fromRange, fromIndex, toRange, toIndex } = range;
+  const fromDesc =
+    firstIndexes.get(fromRange.fromApiVersion) === fromIndex
+      ? fromRange.fromVersion
+      : getTagDesc(fromRange.fromTag);
+  const toDesc =
+    lastIndexes.get(toRange.toApiVersion) === toIndex
+      ? toRange.toVersion
+      : getTagDesc(toRange.toTag);
+  if (fromRange.fromTag === toRange.toTag) return getTagDesc(fromRange.fromTag);
+  if (fromDesc === toDesc) return fromDesc;
+  return `${fromDesc} - ${toDesc}`;
+};
+
+const collectSignatureSummaries = (ranges: AndroidApiVersionRangeResult[]) => {
+  const summaries = new Map<string, CodeSignatureSummary>();
+  const { firstIndexes, lastIndexes } = getApiRangeIndexes(ranges);
+  ranges.forEach((range, index) => {
+    for (const member of range.members ?? []) {
+      const key = formatMemberIdentityKey(member);
+      let summary = summaries.get(key);
+      if (!summary) {
+        summary = {
+          signature: formatSummaryMemberType(member),
+          ranges: [],
+          firstIndexes,
+          lastIndexes,
+        };
+        summaries.set(key, summary);
+      } else {
+        summary.signature = formatSummaryMemberType(member);
+      }
+      const lastRange = summary.ranges.at(-1);
+      if (lastRange?.toIndex === index - 1) {
+        lastRange.toRange = range;
+        lastRange.toIndex = index;
+      } else {
+        summary.ranges.push({
+          fromRange: range,
+          fromIndex: index,
+          toRange: range,
+          toIndex: index,
+        });
+      }
+    }
+  });
+  return summaries;
+};
+
+const formatSignatureSummaryComment = (
+  summary: CodeSignatureSummary | undefined,
+) => {
+  if (!summary) return;
+  return summary.ranges
+    .map((range) =>
+      formatSummaryRange(range, summary.firstIndexes, summary.lastIndexes),
+    )
+    .join(', ');
+};
+
+const getTopLevelNameFromPath = (path: string | undefined): string => {
+  return path?.split('/').at(-1)?.replace(sourceFileReg, '') ?? 'HiddenApi';
+};
+
+const isValidJavaIdentifier = (value: string): boolean => {
+  return javaIdentifierReg.test(value);
+};
+
+const getPackageNameFromPath = (path: string | undefined): string => {
+  const normalized = path?.replaceAll('\\', '/') ?? '';
+  const match = normalized.match(
+    /(?:^|\/)(?:java|src)\/(.+)\/[^/]+\.(?:aidl|java)$/i,
+  );
+  const packagePath = match?.[1];
+  if (!packagePath) return '';
+  const parts = packagePath.split('/').filter(Boolean);
+  if (!parts.every(isValidJavaIdentifier)) return '';
+  return parts.join('.');
+};
+
+const getActualClassPath = (result: AndroidApiQueryResult): string[] => {
+  const target = result.resolvedTarget;
+  if (!target) return [getTopLevelNameFromPath(result.source?.path)];
+  if (target.kind === 'member') {
+    return target.paths.slice(0, -1);
+  }
+  return target.paths.length
+    ? target.paths
+    : [getTopLevelNameFromPath(result.source?.path)];
+};
+
+const getQueryClassRefParts = (result: AndroidApiQueryResult): string[] => {
+  const target = result.resolvedTarget;
+  if (!target || target.kind === 'file') return [];
+
+  let classRef = result.normalizedApiName.trim().replaceAll('$', '.');
+  if (sourceFileReg.test(classRef)) return [];
+
+  if (target.kind === 'member') {
+    const hashIndex = classRef.indexOf('#');
+    if (hashIndex >= 0) {
+      classRef = classRef.substring(0, hashIndex);
+    } else {
+      const dotIndex = classRef.lastIndexOf('.');
+      classRef = dotIndex >= 0 ? classRef.substring(0, dotIndex) : '';
+    }
+  }
+
+  return classRef.split('.').filter(Boolean);
+};
+
+const removePackagePrefix = (
+  parts: string[],
+  packageName: string,
+): string[] => {
+  if (!packageName) return parts;
+  const packageParts = packageName.split('.');
+  if (parts.length <= packageParts.length) return parts;
+  const startsWithPackage = packageParts.every(
+    (part, index) => parts[index] === part,
+  );
+  return startsWithPackage ? parts.slice(packageParts.length) : parts;
+};
+
+const getDisplayClassPath = (
+  result: AndroidApiQueryResult,
+  actualClassPath: string[],
+  packageName: string,
+): string[] => {
+  const classRefParts = removePackagePrefix(
+    getQueryClassRefParts(result),
+    packageName,
+  );
+  if (classRefParts.length < actualClassPath.length) return actualClassPath;
+  const displayClassPath = classRefParts.slice(-actualClassPath.length);
+  if (!displayClassPath.every(isValidJavaIdentifier)) return actualClassPath;
+  return displayClassPath;
+};
+
+const isAidlInterface = (
+  result: AndroidApiQueryResult,
+  classPath: string[],
+): boolean => {
+  return (
+    !!result.source?.path.endsWith('.aidl') &&
+    /^I[A-Z]/.test(classPath[0] ?? '')
+  );
+};
+
+const formatMethodDeclaration = (
+  member: Extract<AndroidApiMemberResult, { kind: 'method' }>,
+  level: number,
+  inInterface: boolean,
+) => {
+  const parameters = member.parameters.map(formatParameter).join(', ');
+  const prefix = inInterface ? '' : 'public ';
+  return `${indent(level)}${prefix}${formatAnnotatedType(
+    member.returnType,
+    member.returnNullability,
+  )} ${member.name}(${parameters})${
+    inInterface ? ';' : ' { throw new RuntimeException(); }'
+  }`;
+};
+
+const formatConstructorDeclaration = (
+  member: Extract<AndroidApiMemberResult, { kind: 'constructor' }>,
+  level: number,
+) => {
+  const parameters = member.parameters.map(formatParameter).join(', ');
+  return `${indent(level)}public ${member.name}(${parameters}) { throw new RuntimeException(); }`;
+};
+
+const formatFieldDeclaration = (
+  member: Extract<AndroidApiMemberResult, { kind: 'field' | 'constant' }>,
+  level: number,
+  inInterface: boolean,
+) => {
+  const prefix = inInterface ? '' : 'public ';
+  return `${indent(level)}${prefix}${formatAnnotatedType(
+    member.type,
+    member.fieldNullability,
+  )} ${member.name};`;
+};
+
+const formatMemberDeclaration = (
+  member: AndroidApiMemberResult,
+  level: number,
+  inInterface: boolean,
+) => {
+  if (member.kind === 'method') {
+    return formatMethodDeclaration(member, level, inInterface);
+  }
+  if (member.kind === 'constructor') {
+    return formatConstructorDeclaration(member, level);
+  }
+  return formatFieldDeclaration(member, level, inInterface);
+};
+
+const getDeclarationIdentityKey = (declaration: AndroidApiCodeDeclaration) => {
+  const member = declaration.member;
+  if (member.kind === 'method' && declaration.remapMethodName) {
+    return formatMemberIdentityKey({
+      ...member,
+      name: declaration.remapMethodName,
+    });
+  }
+  return formatMemberIdentityKey(member);
+};
+
+const formatAnnotatedDeclaration = (
+  declaration: AndroidApiCodeDeclaration,
+  level: number,
+  inInterface: boolean,
+  baselineApiVersion: number | undefined,
+  useLifecycleComments: boolean,
+  signatureSummaries: Map<string, CodeSignatureSummary>,
+) => {
+  const lines: string[] = [];
+  if (useLifecycleComments) {
+    const comment = formatSignatureSummaryComment(
+      signatureSummaries.get(getDeclarationIdentityKey(declaration)),
+    );
+    if (comment) {
+      lines.push(`${indent(level)}// ${comment}`);
+    }
+  } else {
+    if (
+      baselineApiVersion === undefined ||
+      declaration.requiresApi.apiVersion > baselineApiVersion
+    ) {
+      lines.push(
+        `${indent(level)}@RequiresApi(${getVersionCode(declaration.requiresApi)})`,
+      );
+    }
+    if (declaration.deprecatedSinceApi) {
+      lines.push(
+        `${indent(level)}@DeprecatedSinceApi(api = ${getVersionCode(
+          declaration.deprecatedSinceApi,
+        )})`,
+      );
+    }
+  }
+  if (declaration.remapMethodName) {
+    lines.push(
+      `${indent(level)}@RemapMethod("${declaration.remapMethodName}")`,
+    );
+  }
+  lines.push(formatMemberDeclaration(declaration.member, level, inInterface));
+  return lines.join('\n');
+};
+
+const getClassRemapLiteral = (
+  actualClassPath: string[],
+  displayClassPath: string[],
+  index: number,
+): string | undefined => {
+  if (actualClassPath[index] === displayClassPath[index]) return;
+  return `${actualClassPath.slice(0, index + 1).join('.')}.class`;
+};
+
+const addImport = (
+  imports: Set<string>,
+  packageName: string,
+  qualifiedName: string,
+) => {
+  if (packageName && qualifiedName.startsWith(`${packageName}.`)) return;
+  imports.add(qualifiedName);
+};
+
+const hasRemappedClass = (
+  actualClassPath: string[],
+  displayClassPath: string[],
+): boolean => {
+  return displayClassPath.some(
+    (name, index) => name !== actualClassPath[index],
+  );
+};
+
+const needsRequiresApiAnnotation = (
+  declaration: AndroidApiCodeDeclaration,
+  baselineApiVersion: number | undefined,
+) => {
+  return (
+    baselineApiVersion === undefined ||
+    declaration.requiresApi.apiVersion > baselineApiVersion
+  );
+};
+
+const collectMemberTypeNames = (member: AndroidApiMemberResult): string[] => {
+  const typeTexts =
+    'parameters' in member
+      ? [
+          ...member.parameters.map((parameter) => parameter.type),
+          'returnType' in member ? member.returnType : member.name,
+        ]
+      : [member.type];
+  return typeTexts.flatMap((type) => type.match(/[A-Za-z_$][\w$]*/g) ?? []);
+};
+
+const getImportGroupIndex = (item: string) => {
+  if (item.startsWith('android.')) return 0;
+  if (item.startsWith('androidx.')) return 1;
+  if (item.startsWith('java.') || item.startsWith('javax.')) return 2;
+  if (item.startsWith('li.songe.')) return 3;
+  return 4;
+};
+
+const sortImports = (imports: Set<string>) => {
+  return Array.from(imports).sort(
+    (a, b) =>
+      getImportGroupIndex(a) - getImportGroupIndex(b) || a.localeCompare(b),
+  );
+};
+
+const collectImports = (
+  declarations: AndroidApiCodeDeclaration[],
+  packageName: string,
+  aidlInterface: boolean,
+  actualClassPath: string[],
+  displayClassPath: string[],
+  baselineApiVersion: number | undefined,
+  useLifecycleComments: boolean,
+): string[] => {
+  const imports = new Set<string>();
+
+  if (aidlInterface) {
+    addImport(imports, packageName, 'android.os.Binder');
+    addImport(imports, packageName, 'android.os.IBinder');
+    addImport(imports, packageName, 'android.os.IInterface');
+  }
+  if (hasRemappedClass(actualClassPath, displayClassPath)) {
+    addImport(imports, packageName, 'li.songe.remap.RemapType');
+  }
+  if (declarations.some((declaration) => declaration.remapMethodName)) {
+    addImport(imports, packageName, 'li.songe.remap.RemapMethod');
+  }
+
+  for (const declaration of declarations) {
+    if (!useLifecycleComments) {
+      if (needsRequiresApiAnnotation(declaration, baselineApiVersion)) {
+        addImport(imports, packageName, 'android.os.Build');
+        addImport(imports, packageName, 'androidx.annotation.RequiresApi');
+      }
+      if (declaration.deprecatedSinceApi) {
+        addImport(imports, packageName, 'android.os.Build');
+        addImport(
+          imports,
+          packageName,
+          'androidx.annotation.DeprecatedSinceApi',
+        );
+      }
+    }
+    const member = declaration.member;
+    if (
+      ('returnNullability' in member &&
+        member.returnNullability === 'nullable') ||
+      ('fieldNullability' in member &&
+        member.fieldNullability === 'nullable') ||
+      ('parameters' in member &&
+        member.parameters.some(
+          (parameter) => parameter.nullability === 'nullable',
+        ))
+    ) {
+      addImport(imports, packageName, 'android.annotation.Nullable');
+    }
+    if (
+      ('returnNullability' in member &&
+        member.returnNullability === 'non-null') ||
+      ('fieldNullability' in member &&
+        member.fieldNullability === 'non-null') ||
+      ('parameters' in member &&
+        member.parameters.some(
+          (parameter) => parameter.nullability === 'non-null',
+        ))
+    ) {
+      addImport(imports, packageName, 'android.annotation.NonNull');
+    }
+    for (const typeName of collectMemberTypeNames(member)) {
+      const qualifiedName = importBySimpleTypeName.get(typeName);
+      if (qualifiedName) addImport(imports, packageName, qualifiedName);
+    }
+  }
+
+  return sortImports(imports);
+};
+
+const pushFileHeader = (
+  lines: string[],
+  packageName: string,
+  imports: string[],
+) => {
+  if (packageName) {
+    lines.push(`package ${packageName};`);
+    lines.push('');
+  }
+  if (imports.length > 0) {
+    imports.forEach((item, index) => {
+      if (
+        index > 0 &&
+        getImportGroupIndex(imports[index - 1]!) !== getImportGroupIndex(item)
+      ) {
+        lines.push('');
+      }
+      lines.push(`import ${item};`);
+    });
+    lines.push('');
+  }
+};
+
+const pushClassOpenings = (
+  lines: string[],
+  actualClassPath: string[],
+  displayClassPath: string[],
+  aidlInterface: boolean,
+) => {
+  displayClassPath.forEach((name, index) => {
+    const level = index;
+    const remapLiteral = getClassRemapLiteral(
+      actualClassPath,
+      displayClassPath,
+      index,
+    );
+    if (remapLiteral) {
+      lines.push(`${indent(level)}@RemapType(${remapLiteral})`);
+    }
+    if (index === 0 && aidlInterface) {
+      lines.push(
+        `${indent(level)}public interface ${name} extends IInterface {`,
+      );
+      lines.push(
+        `${indent(level + 1)}abstract class Stub extends Binder implements ${name} {`,
+      );
+      lines.push(
+        `${indent(level + 2)}public static ${name} asInterface(IBinder obj) {`,
+      );
+      lines.push(`${indent(level + 3)}throw new RuntimeException();`);
+      lines.push(`${indent(level + 2)}}`);
+      lines.push(`${indent(level + 1)}}`);
+      return;
+    }
+    const prefix = index === 0 ? 'public ' : 'public static ';
+    lines.push(`${indent(level)}${prefix}class ${name} {`);
+  });
+};
+
+const pushClassClosings = (lines: string[], classPath: string[]) => {
+  for (let index = classPath.length - 1; index >= 0; index--) {
+    lines.push(`${indent(index)}}`);
+  }
+};
+
+const renderCode = (
+  result: AndroidApiQueryResult,
+  declarations: AndroidApiCodeDeclaration[],
+  baselineApiVersion: number | undefined,
+  useLifecycleComments: boolean,
+  signatureSummaries: Map<string, CodeSignatureSummary>,
+): string => {
+  if (declarations.length === 0) return '';
+
+  const packageName = getPackageNameFromPath(result.source?.path);
+  const actualClassPath = getActualClassPath(result);
+  const displayClassPath = getDisplayClassPath(
+    result,
+    actualClassPath,
+    packageName,
+  );
+  const aidlInterface = isAidlInterface(result, actualClassPath);
+  const memberLevel = displayClassPath.length;
+  const imports = collectImports(
+    declarations,
+    packageName,
+    aidlInterface,
+    actualClassPath,
+    displayClassPath,
+    baselineApiVersion,
+    useLifecycleComments,
+  );
+  const lines: string[] = [];
+
+  pushFileHeader(lines, packageName, imports);
+  pushClassOpenings(lines, actualClassPath, displayClassPath, aidlInterface);
+  lines.push('');
+  declarations.forEach((declaration, index) => {
+    if (index > 0) lines.push('');
+    lines.push(
+      formatAnnotatedDeclaration(
+        declaration,
+        memberLevel,
+        aidlInterface,
+        baselineApiVersion,
+        useLifecycleComments,
+        signatureSummaries,
+      ),
+    );
+  });
+  lines.push('');
+  pushClassClosings(lines, displayClassPath);
+
+  return lines.join('\n');
+};
+
+export const renderAndroidApiCode = (
+  result: AndroidApiQueryResult,
+): AndroidApiCodeResult => {
+  const ranges = collapseRangesByApiVersion(result.ranges);
+  const baselineApiVersion = ranges[0]?.fromApiVersion;
+  const lifecycleDeclarations = collectDeclarations(ranges);
+  const useLifecycleComments = hasComplexLifecycle(lifecycleDeclarations);
+  const codeDeclarations = useLifecycleComments
+    ? mergeDeclarationsByIdentity(lifecycleDeclarations)
+    : lifecycleDeclarations;
+  const declarations = applyRemapMethodNames(codeDeclarations);
+  const signatureSummaries = collectSignatureSummaries(result.ranges);
+  return {
+    apiName: result.apiName,
+    normalizedApiName: result.normalizedApiName,
+    ...(result.source ? { source: result.source } : {}),
+    ...(result.resolvedTarget ? { resolvedTarget: result.resolvedTarget } : {}),
+    summary: {
+      checkedTags: result.summary.checkedTags,
+      foundTags: result.summary.foundTags,
+      declarationCount: declarations.length,
+      ...(result.summary.firstFoundTag
+        ? { firstFoundTag: result.summary.firstFoundTag }
+        : {}),
+      ...(result.summary.lastFoundTag
+        ? { lastFoundTag: result.summary.lastFoundTag }
+        : {}),
+      signatures: result.summary.signatures,
+    },
+    declarations,
+    code: renderCode(
+      result,
+      declarations,
+      baselineApiVersion,
+      useLifecycleComments,
+      signatureSummaries,
+    ),
+  };
+};

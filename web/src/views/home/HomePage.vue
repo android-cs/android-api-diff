@@ -4,6 +4,14 @@ import MPopconfirm from '@/components/MPopconfirm.vue';
 import { estimateDesc } from '@/store';
 import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
+import type {
+  AndroidApiQueryResult,
+  AndroidApiVersionRangeResult,
+} from '@android-cs/api-query';
+import {
+  renderAndroidApiCode,
+  toAndroidApiMemberResult,
+} from '@android-cs/api-query/code-render';
 import { useEventListener } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
 import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
@@ -24,6 +32,8 @@ const {
   stopDiff,
   androidVersionColors,
   androidVersionList,
+  diffResultList,
+  searchFromData,
 } = useSharedHomeState();
 
 const isSearchInputFocused = ref(false);
@@ -31,7 +41,9 @@ const isSearchHistoryPanelOpen = ref(false);
 const stickyDiffResultRef = ref<HTMLElement>();
 const versionColorScrollRef = ref<HTMLElement>();
 const versionListScrollRef = ref<HTMLElement>();
+const codeDialogRef = ref<HTMLDialogElement>();
 const isDiffResultSticky = ref(false);
+const isCodeCopied = ref(false);
 
 const showSearchHistory = computed(
   () =>
@@ -44,6 +56,113 @@ const showSearchHistory = computed(
 const handleRunDiff = async () => {
   isSearchHistoryPanelOpen.value = false;
   await runDiffWithSearchHistory();
+};
+
+const openCodeDialog = () => {
+  const dialog = codeDialogRef.value;
+  if (!dialog || dialog.open) return;
+  dialog.showModal();
+};
+
+const closeCodeDialog = () => {
+  codeDialogRef.value?.close();
+};
+
+const versionInfoByTag = computed(() => {
+  const map = new Map<string, AndroidVersionItem>();
+  for (const version of androidVersionList.value) {
+    for (const tag of version.tags) {
+      map.set(tag, version);
+    }
+  }
+  return map;
+});
+
+const getRangeFromDiffResult = (
+  item: DiffResultItem,
+): AndroidApiVersionRangeResult | undefined => {
+  const version = versionInfoByTag.value.get(item.tag);
+  if (!version) return;
+  const members = item.members
+    ? [...item.members]
+        .sort((a, b) => (a.parameterCount ?? 0) - (b.parameterCount ?? 0))
+        .map(toAndroidApiMemberResult)
+    : undefined;
+  const missingReason =
+    item.notFound || (!item.target && !members?.length)
+      ? item.notFound
+        ? 'source-file-not-found'
+        : 'api-not-found'
+      : undefined;
+  return {
+    fromVersion: version.version,
+    fromAlias: version.alias,
+    fromApiVersion: version.apiVersion,
+    fromTag: item.tag,
+    toVersion: version.version,
+    toAlias: version.alias,
+    toApiVersion: version.apiVersion,
+    toTag: item.tag,
+    ...(missingReason ? { missingReason } : {}),
+    ...(members ? { members } : {}),
+  };
+};
+
+const codeQueryResult = computed<AndroidApiQueryResult>(() => {
+  const ranges = diffResultList.value
+    .map(getRangeFromDiffResult)
+    .filter((range): range is AndroidApiVersionRangeResult => !!range);
+  const foundRanges = ranges.filter((range) => !range.missingReason);
+  const signatures = Array.from(
+    new Set(
+      foundRanges.flatMap(
+        (range) => range.members?.map((member) => member.type) ?? [],
+      ),
+    ),
+  );
+  return {
+    apiName: searchRef.value,
+    normalizedApiName: searchRef.value.trim(),
+    source: {
+      repo: 'platform/frameworks/base',
+      path: searchFromData.value.filePath,
+    },
+    resolvedTarget: {
+      kind: searchFromData.value.targetKind,
+      paths: searchFromData.value.targetPaths,
+    },
+    summary: {
+      checkedTags: ranges.length,
+      foundTags: foundRanges.length,
+      rangeCount: ranges.length,
+      ...(foundRanges[0] ? { firstFoundTag: foundRanges[0].fromTag } : {}),
+      ...(foundRanges.at(-1)
+        ? { lastFoundTag: foundRanges.at(-1)!.toTag }
+        : {}),
+      signatures,
+    },
+    ranges,
+  };
+});
+
+const generatedCodeText = computed(() => {
+  return renderAndroidApiCode(codeQueryResult.value).code;
+});
+
+const handleGenerateCode = async () => {
+  if (!isCanParsedUrl.value) return;
+  isSearchHistoryPanelOpen.value = false;
+  isCodeCopied.value = false;
+  openCodeDialog();
+};
+
+const copyGeneratedCode = async () => {
+  if (!generatedCodeText.value) return;
+  await navigator.clipboard.writeText(generatedCodeText.value);
+  isCodeCopied.value = true;
+  window.setTimeout(() => {
+    isCodeCopied.value = false;
+  }, 1200);
 };
 
 const handleSearchInputFocus = () => {
@@ -292,7 +411,93 @@ const handleClearLocalCache = async () => {
         <MSvg name="loading" size-16px v-if="handleDiff.loading" />
         <div>{{ handleDiff.loading ? `STOP` : `DIFF` }}</div>
       </div>
+      <button
+        type="button"
+        px-12px
+        py-0
+        min-h-24px
+        rounded-xs
+        flex
+        items-center
+        gap-4px
+        text-16px
+        font-github-mono
+        b-none
+        cursor-pointer
+        bg-gray-100
+        hover="bg-gray-200"
+        active="bg-gray-300"
+        transition-colors
+        select-none
+        :disabled="!isCanParsedUrl"
+        :class="{
+          'cursor-not-allowed! opacity-50': !isCanParsedUrl,
+        }"
+        @click="handleGenerateCode"
+      >
+        <span>CODE</span>
+      </button>
     </div>
+    <dialog
+      ref="codeDialogRef"
+      class="code-dialog"
+      @close="isCodeCopied = false"
+    >
+      <div class="code-dialog-panel">
+        <div
+          flex
+          items-center
+          gap-12px
+          px-16px
+          py-12px
+          b-b-1px
+          b-b-solid
+          b-gray-200
+        >
+          <div min-w-0 flex-1>
+            <div text-16px font-600>Generated code</div>
+            <div text-12px text-gray-500 break-all>{{ searchRef }}</div>
+          </div>
+          <button
+            v-if="generatedCodeText"
+            type="button"
+            class="code-dialog-action"
+            @click="copyGeneratedCode"
+          >
+            {{ isCodeCopied ? 'Copied' : 'Copy' }}
+          </button>
+          <button
+            type="button"
+            class="code-dialog-action"
+            @click="closeCodeDialog"
+          >
+            Close
+          </button>
+        </div>
+        <div p-16px>
+          <div
+            v-if="!generatedCodeText"
+            bg-gray-50
+            b-1px
+            b-solid
+            b-gray-200
+            rounded-4px
+            p-12px
+            text-gray-500
+          >
+            {{
+              handleDiff.loading
+                ? 'Waiting for loaded Android API ranges...'
+                : 'Run DIFF to load Android API ranges.'
+            }}
+          </div>
+          <pre
+            v-else
+            class="generated-code"
+          ><code>{{ generatedCodeText }}</code></pre>
+        </div>
+      </div>
+    </dialog>
     <div ref="stickyDiffResultRef" pt="--gap" sticky top-0 z-10 bg-white>
       <DiffResultList />
       <div
@@ -372,3 +577,58 @@ const handleClearLocalCache = async () => {
     <div h-80px></div>
   </div>
 </template>
+
+<style scoped>
+.code-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(960px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.code-dialog::backdrop {
+  background: rgb(15 23 42 / 48%);
+}
+
+.code-dialog-panel {
+  display: flex;
+  max-height: min(760px, calc(100vh - 32px));
+  min-height: 220px;
+  flex-direction: column;
+}
+
+.code-dialog-action {
+  min-height: 26px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0 10px;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+}
+
+.code-dialog-action:hover {
+  background: #f3f4f6;
+}
+
+.generated-code {
+  max-height: min(600px, calc(100vh - 170px));
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #111827;
+  border-radius: 4px;
+  background: #111827;
+  padding: 12px;
+  color: #f9fafb;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre;
+}
+</style>

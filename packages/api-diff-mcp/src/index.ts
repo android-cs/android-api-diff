@@ -6,6 +6,7 @@ import {
   searchFilePathByRefName,
   toAndroidApiResolution,
 } from '@android-cs/api-query';
+import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { z } from 'zod';
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
@@ -27,6 +28,32 @@ const server = new McpServer({
   name: 'android-api-diff',
   version: '0.0.0',
 });
+
+server.registerTool(
+  'generate_android_api_code',
+  {
+    title: 'Generate Android API Code',
+    description:
+      'Generate a compact Java hidden-API skeleton from Android API diff ranges.',
+    inputSchema: z.object({
+      apiName: z
+        .string()
+        .min(1)
+        .describe(
+          'Member API name, such as IActivityManager.getTasks or ActivityThread.currentApplication.',
+        ),
+      minSdk: z.number().int().optional(),
+    }),
+  },
+  async ({ apiName, minSdk }) => {
+    return toJsonText(
+      await generateAndroidApiCode(runtime, {
+        apiName,
+        minSdk,
+      }),
+    );
+  },
+);
 
 server.registerTool(
   'query_android_api',

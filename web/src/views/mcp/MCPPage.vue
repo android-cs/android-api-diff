@@ -6,13 +6,16 @@ import {
   searchFilePathByRefName,
   toAndroidApiResolution,
   type AndroidApiQueryRuntime,
+  type AndroidApiCodeResult,
   type QueryAndroidApiOptions,
 } from '@android-cs/api-query';
+import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { computed, ref } from 'vue';
 
 type ToolName =
   | 'resolve_android_api'
+  | 'generate_android_api_code'
   | 'query_android_api'
   | 'warm_android_api_cache';
 
@@ -33,6 +36,11 @@ const tools: ToolOption[] = [
     label: 'Query',
     description:
       'Fetch cross-version ranges, signatures, and source coordinates.',
+  },
+  {
+    name: 'generate_android_api_code',
+    label: 'Code',
+    description: 'Generate a Java hidden-API skeleton from diff ranges.',
   },
   {
     name: 'warm_android_api_cache',
@@ -121,6 +129,12 @@ const requestPayload = computed(() => {
       arguments: getMcpQueryArguments(),
     };
   }
+  if (activeToolName.value === 'generate_android_api_code') {
+    return {
+      tool: activeToolName.value,
+      arguments: getMcpQueryArguments(),
+    };
+  }
   return {
     tool: activeToolName.value,
     arguments: {
@@ -157,6 +171,10 @@ const runQueryTool = async () => {
   return queryAndroidApi(browserRuntime, getQueryOptions());
 };
 
+const runCodeTool = async () => {
+  return generateAndroidApiCode(browserRuntime, getQueryOptions());
+};
+
 const runWarmTool = async () => {
   const results = [];
   for (const name of getWarmApiNames()) {
@@ -183,10 +201,16 @@ const runActiveTool = async () => {
     const result =
       activeToolName.value === 'resolve_android_api'
         ? await runResolveTool()
-        : activeToolName.value === 'query_android_api'
-          ? await runQueryTool()
-          : await runWarmTool();
-    resultText.value = formatJson(result);
+        : activeToolName.value === 'generate_android_api_code'
+          ? await runCodeTool()
+          : activeToolName.value === 'query_android_api'
+            ? await runQueryTool()
+            : await runWarmTool();
+    const codeResult = result as Partial<AndroidApiCodeResult>;
+    resultText.value =
+      activeToolName.value === 'generate_android_api_code' && codeResult.code
+        ? codeResult.code
+        : formatJson(result);
   } catch (error) {
     errorText.value =
       error instanceof Error ? error.message : formatJson(error ?? 'Unknown');

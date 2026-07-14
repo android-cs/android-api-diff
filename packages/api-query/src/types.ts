@@ -129,3 +129,30 @@ export interface AndroidApiQueryResult {
   };
   ranges: AndroidApiVersionRangeResult[];
 }
+
+export interface AndroidApiCodeDeclaration {
+  member: AndroidApiMemberResult;
+  signature: string;
+  remapMethodName?: string;
+  requiresApi: AndroidVersionInfo;
+  deprecatedSinceApi?: AndroidVersionInfo;
+  fromTag: string;
+  toTag: string;
+}
+
+export interface AndroidApiCodeResult {
+  apiName: string;
+  normalizedApiName: string;
+  source?: AndroidApiSourceLocation;
+  resolvedTarget?: AndroidApiResolvedTarget;
+  summary: {
+    checkedTags: number;
+    foundTags: number;
+    declarationCount: number;
+    firstFoundTag?: string;
+    lastFoundTag?: string;
+    signatures: string[];
+  };
+  declarations: AndroidApiCodeDeclaration[];
+  code: string;
+}

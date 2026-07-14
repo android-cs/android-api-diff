@@ -63,6 +63,44 @@ const decodeGoogleSourceText = (text: string): string => {
   return new TextDecoder().decode(bytes);
 };
 
+const getGoogleSourceErrorMessage = (text: string): string | undefined => {
+  const firstLine = text.trimStart().split(/\r?\n/, 1)[0] ?? '';
+  if (!/^[A-Z_]+:/.test(firstLine)) return;
+  if (firstLine.startsWith('NOT_FOUND:') || firstLine.startsWith('404:'))
+    return;
+  return firstLine;
+};
+
+const decodeGoogleSourceContent = (text: string, url: string): string => {
+  const errorMessage = getGoogleSourceErrorMessage(text);
+  if (errorMessage) {
+    throw new Error(
+      `Google source returned an error for ${url}: ${errorMessage}`,
+    );
+  }
+  try {
+    return decodeGoogleSourceText(text);
+  } catch (error) {
+    throw new Error(`Google source returned non-base64 content for ${url}`, {
+      cause: error,
+    });
+  }
+};
+
+const getCacheableTaggedFileText = async (
+  runtime: AndroidApiQueryRuntime,
+  key: string,
+  url: string,
+  validate: (text: string) => void,
+): Promise<string> => {
+  const cached = await runtime.textCache?.get(key);
+  if (cached !== undefined) return cached;
+  const text = await runtime.fetchText(url);
+  validate(text);
+  await runtime.textCache?.set(key, text);
+  return text;
+};
+
 const getTaggedFileText = async (
   runtime: AndroidApiQueryRuntime,
   sourceProvider: AndroidApiSourceProvider,
@@ -72,16 +110,26 @@ const getTaggedFileText = async (
     sourceProvider === 'googlesource'
       ? getGoogleContentUrl(taggedFilePath)
       : getMirrorContentUrl(taggedFilePath);
-  const rawText = await getCachedText(
-    runtime,
-    `raw:${sourceProvider}:${url}`,
-    url,
-  );
+  const rawText =
+    sourceProvider === 'googlesource'
+      ? await getCacheableTaggedFileText(
+          runtime,
+          `raw:v2:${sourceProvider}:${url}`,
+          url,
+          (text) => {
+            if (text.startsWith('NOT_FOUND:') || text.startsWith('404:'))
+              return;
+            decodeGoogleSourceContent(text, url);
+          },
+        )
+      : await getCachedText(runtime, `raw:${sourceProvider}:${url}`, url);
   if (sourceProvider === 'googlesource') {
     const sourceFileNotFound =
       rawText.startsWith('NOT_FOUND:') || rawText.startsWith('404:');
     return {
-      text: sourceFileNotFound ? rawText : decodeGoogleSourceText(rawText),
+      text: sourceFileNotFound
+        ? rawText
+        : decodeGoogleSourceContent(rawText, url),
       sourceFileNotFound,
     };
   }

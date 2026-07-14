@@ -7,11 +7,18 @@
     "src/**/*.ts"
   ],
   "scripts": {
+    "test:code-render": "node scripts/code-render.test.ts",
     "type-check": "tsc"
   },
   "exports": {
     ".": {
       "import": "./src/index.ts"
+    },
+    "./code": {
+      "import": "./src/code.ts"
+    },
+    "./code-render": {
+      "import": "./src/code-render.ts"
     },
     "./query": {
       "import": "./src/query.ts"
