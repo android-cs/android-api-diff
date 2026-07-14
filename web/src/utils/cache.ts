@@ -65,7 +65,7 @@ export const persistentFetch = async (
   return getPersistentCache(key, () => fetchTextWithRetry(url));
 };
 
-const structCache = createDB('structCacheV9');
+const structCache = createDB('structCacheV10');
 
 export const getOrSetStructCache = async (
   filePath: string,

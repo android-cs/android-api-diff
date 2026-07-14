@@ -4,12 +4,13 @@ import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
 import { searchFilePathByRefName, toAndroidApiResolution } from './resolve.ts';
-import { findStructByPath } from './struct.ts';
+import { findStructPathByPath } from './struct.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiMissingReason,
   AndroidApiQueryResult,
   AndroidApiQueryRuntime,
+  AndroidApiResolvedType,
   AndroidApiSourceProvider,
   AndroidApiStructCacheEntry,
   AndroidApiVersionRangeResult,
@@ -18,8 +19,8 @@ import type {
 } from './types.ts';
 import { getGoogleContentUrl, getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v6';
-export const QUERY_CACHE_VERSION = 'query:v15';
+export const STRUCT_CACHE_VERSION = 'struct:v8';
+export const QUERY_CACHE_VERSION = 'query:v18';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -30,6 +31,7 @@ interface InternalAndroidApiVersionResult {
   missingReason?: AndroidApiMissingReason;
   signature?: string;
   members?: AndroidApiMemberResult[];
+  typePath?: AndroidApiResolvedType[];
 }
 
 const normalizeConcurrency = (value: number | undefined): number => {
@@ -39,17 +41,10 @@ const normalizeConcurrency = (value: number | undefined): number => {
   return Math.floor(value);
 };
 
-const getCachedText = async (
-  runtime: AndroidApiQueryRuntime,
-  key: string,
-  url: string,
-): Promise<string> => {
-  const cached = await runtime.textCache?.get(key);
-  if (cached !== undefined) return cached;
-  const text = await runtime.fetchText(url);
-  await runtime.textCache?.set(key, text);
-  return text;
-};
+type SingleAndroidApiSourceProvider = Exclude<
+  AndroidApiSourceProvider,
+  'github-googlesource'
+>;
 
 const getSourceProvider = (
   runtime: AndroidApiQueryRuntime,
@@ -87,42 +82,16 @@ const decodeGoogleSourceContent = (text: string, url: string): string => {
   }
 };
 
-const getCacheableTaggedFileText = async (
+const getTaggedFileTextFromProvider = async (
   runtime: AndroidApiQueryRuntime,
-  key: string,
-  url: string,
-  validate: (text: string) => void,
-): Promise<string> => {
-  const cached = await runtime.textCache?.get(key);
-  if (cached !== undefined) return cached;
-  const text = await runtime.fetchText(url);
-  validate(text);
-  await runtime.textCache?.set(key, text);
-  return text;
-};
-
-const getTaggedFileText = async (
-  runtime: AndroidApiQueryRuntime,
-  sourceProvider: AndroidApiSourceProvider,
+  sourceProvider: SingleAndroidApiSourceProvider,
   taggedFilePath: string,
 ): Promise<{ text: string; sourceFileNotFound: boolean }> => {
   const url =
     sourceProvider === 'googlesource'
       ? getGoogleContentUrl(taggedFilePath)
       : getMirrorContentUrl(taggedFilePath);
-  const rawText =
-    sourceProvider === 'googlesource'
-      ? await getCacheableTaggedFileText(
-          runtime,
-          `raw:v2:${sourceProvider}:${url}`,
-          url,
-          (text) => {
-            if (text.startsWith('NOT_FOUND:') || text.startsWith('404:'))
-              return;
-            decodeGoogleSourceContent(text, url);
-          },
-        )
-      : await getCachedText(runtime, `raw:${sourceProvider}:${url}`, url);
+  const rawText = await runtime.fetchText(url);
   if (sourceProvider === 'googlesource') {
     const sourceFileNotFound =
       rawText.startsWith('NOT_FOUND:') || rawText.startsWith('404:');
@@ -137,6 +106,69 @@ const getTaggedFileText = async (
     text: rawText,
     sourceFileNotFound: rawText.startsWith('404:'),
   };
+};
+
+const fetchTaggedFileText = async (
+  runtime: AndroidApiQueryRuntime,
+  sourceProvider: AndroidApiSourceProvider,
+  taggedFilePath: string,
+): Promise<{ text: string; sourceFileNotFound: boolean }> => {
+  if (sourceProvider !== 'github-googlesource') {
+    return getTaggedFileTextFromProvider(
+      runtime,
+      sourceProvider,
+      taggedFilePath,
+    );
+  }
+
+  const results = await Promise.allSettled(
+    (['github', 'googlesource'] as const).map((provider) =>
+      getTaggedFileTextFromProvider(runtime, provider, taggedFilePath),
+    ),
+  );
+  for (const result of results) {
+    if (result.status === 'fulfilled' && !result.value.sourceFileNotFound) {
+      return result.value;
+    }
+  }
+
+  const errors = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : [],
+  );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(
+      errors,
+      `GitHub and Google sources failed for ${taggedFilePath}`,
+    );
+  }
+  for (const result of results) {
+    if (result.status === 'fulfilled') return result.value;
+  }
+  throw new Error(
+    `GitHub and Google sources returned no result for ${taggedFilePath}`,
+  );
+};
+
+const getTaggedFileText = async (
+  runtime: AndroidApiQueryRuntime,
+  sourceProvider: AndroidApiSourceProvider,
+  taggedFilePath: string,
+): Promise<{ text: string; sourceFileNotFound: boolean }> => {
+  const cached = await runtime.textCache?.get(taggedFilePath);
+  if (cached !== undefined) {
+    return { text: cached, sourceFileNotFound: false };
+  }
+
+  const result = await fetchTaggedFileText(
+    runtime,
+    sourceProvider,
+    taggedFilePath,
+  );
+  if (!result.sourceFileNotFound) {
+    await runtime.textCache?.set(taggedFilePath, result.text);
+  }
+  return result;
 };
 
 const getStructsByTaggedFile = async (
@@ -189,6 +221,7 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
       kind: member.kind,
       name: member.name,
       type: member.type,
+      ...(member.isAbstract ? { isAbstract: true } : {}),
       returnType: member.returnType,
       ...(member.returnNullability
         ? { returnNullability: member.returnNullability }
@@ -214,6 +247,14 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
   };
 };
 
+const toResolvedType = (struct: ClassStruct): AndroidApiResolvedType => {
+  return {
+    name: struct.name,
+    kind: struct.isInterface ? 'interface' : 'class',
+    ...(struct.isAbstract ? { isAbstract: true } : {}),
+  };
+};
+
 const getTagRevision = (tag: string): number => {
   return Number(tag.match(/_r(\d+)$/)?.[1] ?? 0);
 };
@@ -235,6 +276,9 @@ const toSemanticMember = (member: AndroidApiMemberResult) => {
     name: member.name,
     type: member.type,
     ...('returnType' in member ? { returnType: member.returnType } : {}),
+    ...('isAbstract' in member && member.isAbstract
+      ? { isAbstract: true }
+      : {}),
     ...('returnNullability' in member
       ? { returnNullability: member.returnNullability }
       : {}),
@@ -288,6 +332,49 @@ const extendRange = (
   range.members = version.members;
 };
 
+const getVersionIdentity = (version: {
+  version: string;
+  apiVersion: number;
+}): string => {
+  return `${version.apiVersion}:${version.version}`;
+};
+
+const addCheckedTagPositions = (
+  ranges: AndroidApiVersionRangeResult[],
+  versions: InternalAndroidApiVersionResult[],
+): AndroidApiVersionRangeResult[] => {
+  const firstTags = new Map<string, string>();
+  const lastTags = new Map<string, string>();
+  for (const version of versions) {
+    const key = getVersionIdentity(version);
+    if (!firstTags.has(key)) firstTags.set(key, version.tag);
+    lastTags.set(key, version.tag);
+  }
+  for (const range of ranges) {
+    if (
+      firstTags.get(
+        getVersionIdentity({
+          version: range.fromVersion,
+          apiVersion: range.fromApiVersion,
+        }),
+      ) === range.fromTag
+    ) {
+      range.fromTagPosition = 'first-checked';
+    }
+    if (
+      lastTags.get(
+        getVersionIdentity({
+          version: range.toVersion,
+          apiVersion: range.toApiVersion,
+        }),
+      ) === range.toTag
+    ) {
+      range.toTagPosition = 'last-checked';
+    }
+  }
+  return ranges;
+};
+
 const compactVersionResults = (
   versions: InternalAndroidApiVersionResult[],
 ): AndroidApiVersionRangeResult[] => {
@@ -303,7 +390,7 @@ const compactVersionResults = (
       previousKey = key;
     }
   }
-  return ranges;
+  return addCheckedTagPositions(ranges, versions);
 };
 
 const getQueryCacheKey = (
@@ -369,26 +456,30 @@ export const queryAndroidApi = async (
               );
             let targetFound = false;
             let members: AndroidApiMemberResult[] | undefined;
+            let typePath: AndroidApiResolvedType[] | undefined;
             let signature = '';
 
             if (!sourceFileNotFound) {
               if (search.targetKind === 'file') {
                 targetFound = true;
               } else if (search.targetKind === 'class') {
-                const foundTarget = findStructByPath(
+                const foundTypePath = findStructPathByPath(
                   structs,
                   search.targetPaths,
                 );
-                if (foundTarget) {
+                if (foundTypePath) {
                   targetFound = true;
+                  typePath = foundTypePath.map(toResolvedType);
                 }
               } else {
                 const propName = search.targetPaths.at(-1);
-                const foundTarget = findStructByPath(
+                const foundTypePath = findStructPathByPath(
                   structs,
                   search.targetPaths.slice(0, -1),
                 );
-                if (foundTarget && propName) {
+                const foundTarget = foundTypePath?.at(-1);
+                if (foundTypePath && foundTarget && propName) {
+                  typePath = foundTypePath.map(toResolvedType);
                   const matchedMembers = foundTarget.members.filter(
                     (v) => v.name === propName,
                   );
@@ -424,6 +515,7 @@ export const queryAndroidApi = async (
               ...(missingReason ? { missingReason } : {}),
               ...(signature ? { signature } : {}),
               members,
+              ...(typePath ? { typePath } : {}),
             };
           }),
         ),
@@ -436,11 +528,15 @@ export const queryAndroidApi = async (
   const signatures = Array.from(
     new Set(foundVersions.flatMap((v) => (v.signature ? [v.signature] : []))),
   );
+  const typePath = versions.findLast((version) => version.typePath)?.typePath;
   const result: AndroidApiQueryResult = {
     apiName: options.apiName,
     normalizedApiName,
     source: resolution.source,
-    resolvedTarget: resolution.resolvedTarget,
+    resolvedTarget: {
+      ...resolution.resolvedTarget,
+      ...(typePath ? { typePath } : {}),
+    },
     summary: {
       checkedTags: versions.length,
       foundTags: foundVersions.length,

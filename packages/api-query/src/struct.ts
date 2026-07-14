@@ -17,13 +17,23 @@ export const findStructByPath = (
   list: ClassStruct[] | undefined,
   paths: string[],
 ): ClassStruct | undefined => {
+  return findStructPathByPath(list, paths)?.at(-1);
+};
+
+export const findStructPathByPath = (
+  list: ClassStruct[] | undefined,
+  paths: string[],
+): ClassStruct[] | undefined => {
   if (!list?.length || paths.length === 0) return;
   let currentList: ClassStruct[] | undefined = list;
-  let current: ClassStruct | undefined;
+  const result: ClassStruct[] = [];
   for (const name of paths) {
-    current = currentList?.find((v) => v.name === name);
+    const current: ClassStruct | undefined = currentList?.find(
+      (v) => v.name === name,
+    );
     if (!current) return;
+    result.push(current);
     currentList = current.children;
   }
-  return current;
+  return result;
 };

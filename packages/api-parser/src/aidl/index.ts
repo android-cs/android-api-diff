@@ -75,16 +75,20 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
     hasCurrentStruct,
     structs,
     clearUseless,
-  } =
-    useStructEditor();
+  } = useStructEditor();
   listener.enterInterfaceDeclaration = (ctx) => {
-    enterStruct(ctx.IDENTIFIER().getText(), ctx.IDENTIFIER().symbol.line);
+    enterStruct(
+      ctx.IDENTIFIER().getText(),
+      ctx.IDENTIFIER().symbol.line,
+      'interface',
+    );
   };
   listener.exitInterfaceDeclaration = exitStruct;
   listener.enterParcelableDeclaration = (ctx) => {
     enterStruct(
       getQualifiedNameTail(ctx.qualifiedName(0).getText()),
       ctx.qualifiedName(0).start.line,
+      'class',
     );
   };
   listener.exitParcelableDeclaration = exitStruct;
@@ -130,7 +134,9 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
       ctx.type_(),
       getAttributeAnnotations(ctx.attributes()),
     );
-    for (const declarator of ctx.variableDeclarators().variableDeclarator_list()) {
+    for (const declarator of ctx
+      .variableDeclarators()
+      .variableDeclarator_list()) {
       const id = declarator.IDENTIFIER();
       addMember({
         kind: 'field',

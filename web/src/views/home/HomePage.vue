@@ -6,8 +6,10 @@ import { clearLocalCache } from '@/utils/cache';
 import TagCard from '@/views/home/TagCard.vue';
 import type {
   AndroidApiQueryResult,
+  AndroidApiResolvedType,
   AndroidApiVersionRangeResult,
 } from '@android-cs/api-query';
+import { findStructPathByPath } from '@android-cs/api-query';
 import {
   renderAndroidApiCode,
   toAndroidApiMemberResult,
@@ -108,6 +110,26 @@ const getRangeFromDiffResult = (
   };
 };
 
+const getLatestResolvedTypePath = (): AndroidApiResolvedType[] | undefined => {
+  const targetPaths =
+    searchFromData.value.targetKind === 'member'
+      ? searchFromData.value.targetPaths.slice(0, -1)
+      : searchFromData.value.targetPaths;
+  if (targetPaths.length === 0) return;
+  for (let index = diffResultList.value.length - 1; index >= 0; index--) {
+    const path = findStructPathByPath(
+      diffResultList.value[index]?.structs,
+      targetPaths,
+    );
+    if (!path) continue;
+    return path.map((struct) => ({
+      name: struct.name,
+      kind: struct.isInterface ? 'interface' : 'class',
+      ...(struct.isAbstract ? { isAbstract: true } : {}),
+    }));
+  }
+};
+
 const codeQueryResult = computed<AndroidApiQueryResult>(() => {
   const ranges = diffResultList.value
     .map(getRangeFromDiffResult)
@@ -120,6 +142,7 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
       ),
     ),
   );
+  const typePath = getLatestResolvedTypePath();
   return {
     apiName: searchRef.value,
     normalizedApiName: searchRef.value.trim(),
@@ -130,6 +153,7 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
     resolvedTarget: {
       kind: searchFromData.value.targetKind,
       paths: searchFromData.value.targetPaths,
+      ...(typePath ? { typePath } : {}),
     },
     summary: {
       checkedTags: ranges.length,

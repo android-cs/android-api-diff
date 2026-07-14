@@ -85,7 +85,7 @@ export const loadAndroidVersionList = async (
   ).filter((v) => tagReg.test(v));
 
   const availableTags =
-    getSourceProvider(runtime) === 'googlesource'
+    getSourceProvider(runtime) !== 'github'
       ? googleTags
       : await (async () => {
           const githubTagsText = await fetchCachedText(

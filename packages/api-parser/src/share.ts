@@ -25,6 +25,7 @@ export interface ClassConstantMember extends ClassMemberBase {
 
 export interface ClassMethodMember extends ClassMemberBase {
   kind: 'method';
+  isAbstract?: true;
   returnType: string;
   returnNullability?: Nullability;
   parameters: ClassMemberParam[];
@@ -46,6 +47,8 @@ export type ClassMember =
 export interface ClassStruct {
   name: string;
   loc: number;
+  isInterface?: true;
+  isAbstract?: true;
   members: ClassMember[];
   children?: ClassStruct[];
 }
@@ -59,10 +62,17 @@ export const useStructEditor = () => {
   const tempAllStructs: TempClassStruct[] = [];
   const structs: TempClassStruct[] = [];
   let currentStruct: TempClassStruct | undefined;
-  const enterStruct = (name: string, loc: number) => {
+  const enterStruct = (
+    name: string,
+    loc: number,
+    kind: 'class' | 'interface',
+    isAbstract = false,
+  ) => {
     const v: TempClassStruct = {
       name,
       loc,
+      ...(kind === 'interface' ? { isInterface: true as const } : {}),
+      ...(isAbstract ? { isAbstract: true as const } : {}),
       members: [],
       children: [],
     };

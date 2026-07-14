@@ -3,7 +3,10 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
-import { QUERY_CACHE_VERSION, STRUCT_CACHE_VERSION } from '@android-cs/api-query/query';
+import {
+  QUERY_CACHE_VERSION,
+  STRUCT_CACHE_VERSION,
+} from '@android-cs/api-query/query';
 import type {
   AndroidApiQueryRuntime,
   AndroidApiStructCacheEntry,
@@ -145,7 +148,7 @@ export const createNodeRuntime = (
 ): AndroidApiQueryRuntime => {
   return {
     fetchText: fetchTextWithRetry,
-    sourceProvider: 'googlesource',
+    sourceProvider: 'github-googlesource',
     textCache: new FileCache(cacheDir, 'text', textCodec),
     structCache: new FileCache(
       cacheDir,

@@ -60,7 +60,7 @@ server.registerTool(
   {
     title: 'Query Android API',
     description:
-      'Resolve an Android Java/AIDL API name and return cross-version ranges, signatures, and source coordinates.',
+      'Resolve an Android Java/AIDL API name and return compact cross-version signature ranges. Sparse endpoint metadata marks fromTagPosition as first-checked or toTagPosition as last-checked when that endpoint is the first or last tag checked for its Android version in the current query snapshot; last-checked does not claim that no later tag can be released.',
     inputSchema: z.object({
       apiName: z
         .string()

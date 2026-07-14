@@ -14,12 +14,14 @@ import JavaLexer from './JavaLexer.ts';
 import JavaParser, {
   AnnotationContext,
   ClassBodyDeclarationContext,
+  ClassOrInterfaceModifierContext,
   FormalParameterContext,
   FormalParameterListContext,
   InterfaceBodyDeclarationContext,
   InterfaceMethodDeclarationContext,
   ModifierContext,
   ReceiverParameterContext,
+  TypeDeclarationContext,
   TypeTypeContext,
 } from './JavaParser.ts';
 import JavaListener from './JavaParserListener.ts';
@@ -85,6 +87,35 @@ const getAncestorModifierAnnotations = (ctx: unknown) => {
     current = getParent(current);
   }
   return [];
+};
+
+const getDeclarationModifiers = (
+  ctx: unknown,
+): (ModifierContext | ClassOrInterfaceModifierContext)[] => {
+  let current = getParent(ctx);
+  while (current) {
+    if (
+      current instanceof ClassBodyDeclarationContext ||
+      current instanceof InterfaceBodyDeclarationContext
+    ) {
+      return current.modifier_list();
+    }
+    if (current instanceof TypeDeclarationContext) {
+      return current.classOrInterfaceModifier_list();
+    }
+    current = getParent(current);
+  }
+  return [];
+};
+
+const hasAbstractModifier = (ctx: unknown) => {
+  return getDeclarationModifiers(ctx).some((modifier) => {
+    const classModifier =
+      modifier instanceof ModifierContext
+        ? modifier.classOrInterfaceModifier()
+        : modifier;
+    return !!classModifier?.ABSTRACT();
+  });
 };
 
 const getInterfaceMethodModifierAnnotations = (
@@ -205,7 +236,12 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   const { addMember, enterStruct, exitStruct, structs, clearUseless } =
     useStructEditor();
   listener.enterClassDeclaration = (ctx) => {
-    enterStruct(ctx.identifier().getText(), ctx.identifier().start.line);
+    enterStruct(
+      ctx.identifier().getText(),
+      ctx.identifier().start.line,
+      'class',
+      hasAbstractModifier(ctx),
+    );
   };
   listener.exitClassDeclaration = exitStruct;
   listener.enterConstructorDeclaration = (ctx) => {
@@ -233,6 +269,7 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
       name,
       type: toMethodType(parameters, returnInfo.type),
       loc: id.start.line,
+      ...(hasAbstractModifier(ctx) ? { isAbstract: true } : {}),
       returnType: returnInfo.type,
       ...(returnInfo.nullability
         ? { returnNullability: returnInfo.nullability }
@@ -262,7 +299,11 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
     });
   };
   listener.enterInterfaceDeclaration = (ctx) => {
-    enterStruct(ctx.identifier().getText(), ctx.identifier().start.line);
+    enterStruct(
+      ctx.identifier().getText(),
+      ctx.identifier().start.line,
+      'interface',
+    );
   };
   listener.exitInterfaceDeclaration = exitStruct;
   listener.enterInterfaceMethodDeclaration = (ctx) => {

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "test:code-render": "node scripts/code-render.test.ts",
+    "test:query": "node scripts/query.test.ts",
     "type-check": "tsc"
   },
   "exports": {

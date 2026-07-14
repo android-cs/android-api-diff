@@ -9,6 +9,7 @@ import type {
   AndroidApiCodeResult,
   AndroidApiMemberResult,
   AndroidApiQueryResult,
+  AndroidApiResolvedType,
   AndroidApiVersionRangeResult,
   AndroidVersionInfo,
 } from './types.ts';
@@ -34,6 +35,7 @@ interface CodeSignatureSummary {
   ranges: CodeSignatureSummaryRange[];
   firstIndexes: Map<number, number>;
   lastIndexes: Map<number, number>;
+  hasCheckedTagPositions: boolean;
 }
 
 interface CodeSignatureSummaryRange {
@@ -112,19 +114,20 @@ const getVersionCode = (version: AndroidVersionInfo): string => {
     : String(version.apiVersion);
 };
 
-const getNullableAnnotation = (
+const getNullabilityAnnotationName = (
   type: string,
   nullability: Nullability | undefined,
-): string => {
-  if (!nullability || primitiveTypeNames.has(type)) return '';
-  return nullability === 'nullable' ? '@Nullable ' : '@NonNull ';
+): 'Nullable' | 'NonNull' | undefined => {
+  if (!nullability || primitiveTypeNames.has(type)) return;
+  return nullability === 'nullable' ? 'Nullable' : 'NonNull';
 };
 
 const formatAnnotatedType = (
   type: string,
   nullability: Nullability | undefined,
 ): string => {
-  return `${getNullableAnnotation(type, nullability)}${type}`;
+  const annotation = getNullabilityAnnotationName(type, nullability);
+  return `${annotation ? `@${annotation} ` : ''}${type}`;
 };
 
 const formatParameter = (
@@ -219,6 +222,7 @@ export const toAndroidApiMemberResult = (
       kind: member.kind,
       name: member.name,
       type: member.type,
+      ...(member.isAbstract ? { isAbstract: true } : {}),
       returnType: member.returnType,
       ...(member.returnNullability
         ? { returnNullability: member.returnNullability }
@@ -375,6 +379,36 @@ const collapseRangesByApiVersion = (
   return Array.from(votesByApiVersion.entries())
     .sort(([a], [b]) => a - b)
     .map(([, votes]) => chooseApiVersionVote(Array.from(votes.values())).range);
+};
+
+const hasMultipleMethodSignaturesInApiVersion = (
+  ranges: AndroidApiVersionRangeResult[],
+): boolean => {
+  const signaturesByApiVersion = new Map<number, Map<string, Set<string>>>();
+  for (const range of ranges) {
+    const methods = (range.members ?? []).filter(
+      (member): member is Extract<AndroidApiMemberResult, { kind: 'method' }> =>
+        member.kind === 'method',
+    );
+    if (methods.length === 0) continue;
+    for (const version of getApiVersionsInRange(range)) {
+      let signaturesByName = signaturesByApiVersion.get(version.apiVersion);
+      if (!signaturesByName) {
+        signaturesByName = new Map();
+        signaturesByApiVersion.set(version.apiVersion, signaturesByName);
+      }
+      for (const method of methods) {
+        let signatures = signaturesByName.get(method.name);
+        if (!signatures) {
+          signatures = new Set();
+          signaturesByName.set(method.name, signatures);
+        }
+        signatures.add(formatMemberIdentityKey(method));
+        if (signatures.size > 1) return true;
+      }
+    }
+  }
+  return false;
 };
 
 const completeDeclaration = (
@@ -600,16 +634,29 @@ const formatSummaryRange = (
   range: CodeSignatureSummaryRange,
   firstIndexes: Map<number, number>,
   lastIndexes: Map<number, number>,
+  hasCheckedTagPositions: boolean,
 ) => {
   const { fromRange, fromIndex, toRange, toIndex } = range;
-  const fromDesc =
-    firstIndexes.get(fromRange.fromApiVersion) === fromIndex
-      ? fromRange.fromVersion
-      : getTagDesc(fromRange.fromTag);
-  const toDesc =
-    lastIndexes.get(toRange.toApiVersion) === toIndex
-      ? toRange.toVersion
-      : getTagDesc(toRange.toTag);
+  const startsAtFirstCheckedTag = hasCheckedTagPositions
+    ? fromRange.fromTagPosition === 'first-checked'
+    : firstIndexes.get(fromRange.fromApiVersion) === fromIndex;
+  const endsAtLastCheckedTag = hasCheckedTagPositions
+    ? toRange.toTagPosition === 'last-checked'
+    : lastIndexes.get(toRange.toApiVersion) === toIndex;
+  const fromDesc = startsAtFirstCheckedTag
+    ? fromRange.fromVersion
+    : getTagDesc(fromRange.fromTag);
+  const toDesc = endsAtLastCheckedTag
+    ? toRange.toVersion
+    : getTagDesc(toRange.toTag);
+  if (
+    hasCheckedTagPositions &&
+    startsAtFirstCheckedTag &&
+    endsAtLastCheckedTag &&
+    fromDesc === toDesc
+  ) {
+    return fromDesc;
+  }
   if (fromRange.fromTag === toRange.toTag) return getTagDesc(fromRange.fromTag);
   if (fromDesc === toDesc) return fromDesc;
   return `${fromDesc} - ${toDesc}`;
@@ -618,6 +665,9 @@ const formatSummaryRange = (
 const collectSignatureSummaries = (ranges: AndroidApiVersionRangeResult[]) => {
   const summaries = new Map<string, CodeSignatureSummary>();
   const { firstIndexes, lastIndexes } = getApiRangeIndexes(ranges);
+  const hasCheckedTagPositions = ranges.some(
+    (range) => range.fromTagPosition || range.toTagPosition,
+  );
   ranges.forEach((range, index) => {
     for (const member of range.members ?? []) {
       const key = formatMemberIdentityKey(member);
@@ -628,6 +678,7 @@ const collectSignatureSummaries = (ranges: AndroidApiVersionRangeResult[]) => {
           ranges: [],
           firstIndexes,
           lastIndexes,
+          hasCheckedTagPositions,
         };
         summaries.set(key, summary);
       } else {
@@ -656,7 +707,12 @@ const formatSignatureSummaryComment = (
   if (!summary) return;
   return summary.ranges
     .map((range) =>
-      formatSummaryRange(range, summary.firstIndexes, summary.lastIndexes),
+      formatSummaryRange(
+        range,
+        summary.firstIndexes,
+        summary.lastIndexes,
+        summary.hasCheckedTagPositions,
+      ),
     )
     .join(', ');
 };
@@ -750,18 +806,54 @@ const isAidlInterface = (
   );
 };
 
+const getResolvedTypePath = (
+  result: AndroidApiQueryResult,
+  actualClassPath: string[],
+  declarations: AndroidApiCodeDeclaration[],
+): AndroidApiResolvedType[] => {
+  const resolvedTypePath = result.resolvedTarget?.typePath;
+  const hasMatchingTypePath =
+    resolvedTypePath?.length === actualClassPath.length &&
+    resolvedTypePath.every(
+      (type, index) => type.name === actualClassPath[index],
+    );
+  const typePath: AndroidApiResolvedType[] = hasMatchingTypePath
+    ? resolvedTypePath.map((type) => ({ ...type }))
+    : actualClassPath.map((name, index) => ({
+        name,
+        kind:
+          index === 0 && isAidlInterface(result, actualClassPath)
+            ? ('interface' as const)
+            : ('class' as const),
+      }));
+  const hasAbstractMethod = declarations.some(
+    (declaration) =>
+      declaration.member.kind === 'method' && declaration.member.isAbstract,
+  );
+  const containingType = typePath.at(-1);
+  if (hasAbstractMethod && containingType && containingType.kind === 'class') {
+    containingType.isAbstract = true;
+  }
+  return typePath;
+};
+
 const formatMethodDeclaration = (
   member: Extract<AndroidApiMemberResult, { kind: 'method' }>,
   level: number,
   inInterface: boolean,
 ) => {
   const parameters = member.parameters.map(formatParameter).join(', ');
-  const prefix = inInterface ? '' : 'public ';
+  const isAbstract = inInterface || member.isAbstract;
+  const prefix = inInterface
+    ? ''
+    : member.isAbstract
+      ? 'public abstract '
+      : 'public ';
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.returnType,
     member.returnNullability,
   )} ${member.name}(${parameters})${
-    inInterface ? ';' : ' { throw new RuntimeException(); }'
+    isAbstract ? ';' : ' { throw new RuntimeException(); }'
   }`;
 };
 
@@ -900,6 +992,28 @@ const collectMemberTypeNames = (member: AndroidApiMemberResult): string[] => {
   return typeTexts.flatMap((type) => type.match(/[A-Za-z_$][\w$]*/g) ?? []);
 };
 
+const getMemberTypeNullabilities = (
+  member: AndroidApiMemberResult,
+): { type: string; nullability?: Nullability }[] => {
+  if ('parameters' in member) {
+    return [
+      ...member.parameters.map((parameter) => ({
+        type: parameter.type,
+        nullability: parameter.nullability,
+      })),
+      ...('returnType' in member
+        ? [
+            {
+              type: member.returnType,
+              nullability: member.returnNullability,
+            },
+          ]
+        : []),
+    ];
+  }
+  return [{ type: member.type, nullability: member.fieldNullability }];
+};
+
 const getImportGroupIndex = (item: string) => {
   if (item.startsWith('android.')) return 0;
   if (item.startsWith('androidx.')) return 1;
@@ -954,29 +1068,14 @@ const collectImports = (
       }
     }
     const member = declaration.member;
-    if (
-      ('returnNullability' in member &&
-        member.returnNullability === 'nullable') ||
-      ('fieldNullability' in member &&
-        member.fieldNullability === 'nullable') ||
-      ('parameters' in member &&
-        member.parameters.some(
-          (parameter) => parameter.nullability === 'nullable',
-        ))
-    ) {
-      addImport(imports, packageName, 'android.annotation.Nullable');
-    }
-    if (
-      ('returnNullability' in member &&
-        member.returnNullability === 'non-null') ||
-      ('fieldNullability' in member &&
-        member.fieldNullability === 'non-null') ||
-      ('parameters' in member &&
-        member.parameters.some(
-          (parameter) => parameter.nullability === 'non-null',
-        ))
-    ) {
-      addImport(imports, packageName, 'android.annotation.NonNull');
+    for (const item of getMemberTypeNullabilities(member)) {
+      const annotation = getNullabilityAnnotationName(
+        item.type,
+        item.nullability,
+      );
+      if (annotation) {
+        addImport(imports, packageName, `android.annotation.${annotation}`);
+      }
     }
     for (const typeName of collectMemberTypeNames(member)) {
       const qualifiedName = importBySimpleTypeName.get(typeName);
@@ -1014,10 +1113,12 @@ const pushClassOpenings = (
   lines: string[],
   actualClassPath: string[],
   displayClassPath: string[],
-  aidlInterface: boolean,
+  typePath: AndroidApiResolvedType[],
+  includeAidlStub: boolean,
 ) => {
   displayClassPath.forEach((name, index) => {
     const level = index;
+    const type = typePath[index]!;
     const remapLiteral = getClassRemapLiteral(
       actualClassPath,
       displayClassPath,
@@ -1026,23 +1127,26 @@ const pushClassOpenings = (
     if (remapLiteral) {
       lines.push(`${indent(level)}@RemapType(${remapLiteral})`);
     }
-    if (index === 0 && aidlInterface) {
-      lines.push(
-        `${indent(level)}public interface ${name} extends IInterface {`,
-      );
-      lines.push(
-        `${indent(level + 1)}abstract class Stub extends Binder implements ${name} {`,
-      );
-      lines.push(
-        `${indent(level + 2)}public static ${name} asInterface(IBinder obj) {`,
-      );
-      lines.push(`${indent(level + 3)}throw new RuntimeException();`);
-      lines.push(`${indent(level + 2)}}`);
-      lines.push(`${indent(level + 1)}}`);
+    if (type.kind === 'interface') {
+      const extendsType =
+        index === 0 && includeAidlStub ? ' extends IInterface' : '';
+      lines.push(`${indent(level)}public interface ${name}${extendsType} {`);
+      if (index === 0 && includeAidlStub) {
+        lines.push(
+          `${indent(level + 1)}abstract class Stub extends Binder implements ${name} {`,
+        );
+        lines.push(
+          `${indent(level + 2)}public static ${name} asInterface(IBinder obj) {`,
+        );
+        lines.push(`${indent(level + 3)}throw new RuntimeException();`);
+        lines.push(`${indent(level + 2)}}`);
+        lines.push(`${indent(level + 1)}}`);
+      }
       return;
     }
     const prefix = index === 0 ? 'public ' : 'public static ';
-    lines.push(`${indent(level)}${prefix}class ${name} {`);
+    const abstractModifier = type.isAbstract ? 'abstract ' : '';
+    lines.push(`${indent(level)}${prefix}${abstractModifier}class ${name} {`);
   });
 };
 
@@ -1068,12 +1172,16 @@ const renderCode = (
     actualClassPath,
     packageName,
   );
-  const aidlInterface = isAidlInterface(result, actualClassPath);
+  const typePath = getResolvedTypePath(result, actualClassPath, declarations);
+  const inInterface = typePath.at(-1)?.kind === 'interface';
+  const includeAidlStub =
+    !!result.source?.path.endsWith('.aidl') &&
+    typePath[0]?.kind === 'interface';
   const memberLevel = displayClassPath.length;
   const imports = collectImports(
     declarations,
     packageName,
-    aidlInterface,
+    includeAidlStub,
     actualClassPath,
     displayClassPath,
     baselineApiVersion,
@@ -1082,7 +1190,13 @@ const renderCode = (
   const lines: string[] = [];
 
   pushFileHeader(lines, packageName, imports);
-  pushClassOpenings(lines, actualClassPath, displayClassPath, aidlInterface);
+  pushClassOpenings(
+    lines,
+    actualClassPath,
+    displayClassPath,
+    typePath,
+    includeAidlStub,
+  );
   lines.push('');
   declarations.forEach((declaration, index) => {
     if (index > 0) lines.push('');
@@ -1090,7 +1204,7 @@ const renderCode = (
       formatAnnotatedDeclaration(
         declaration,
         memberLevel,
-        aidlInterface,
+        inInterface,
         baselineApiVersion,
         useLifecycleComments,
         signatureSummaries,
@@ -1109,7 +1223,9 @@ export const renderAndroidApiCode = (
   const ranges = collapseRangesByApiVersion(result.ranges);
   const baselineApiVersion = ranges[0]?.fromApiVersion;
   const lifecycleDeclarations = collectDeclarations(ranges);
-  const useLifecycleComments = hasComplexLifecycle(lifecycleDeclarations);
+  const useLifecycleComments =
+    hasMultipleMethodSignaturesInApiVersion(result.ranges) ||
+    hasComplexLifecycle(lifecycleDeclarations);
   const codeDeclarations = useLifecycleComments
     ? mergeDeclarationsByIdentity(lifecycleDeclarations)
     : lifecycleDeclarations;

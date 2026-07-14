@@ -3,6 +3,7 @@ import { renderAndroidApiCode } from '../src/code-render.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryResult,
+  AndroidApiResolvedType,
   AndroidApiVersionRangeResult,
 } from '../src/types.ts';
 
@@ -22,10 +23,12 @@ const method = (
   type: string,
   parameters: Extract<AndroidApiMemberResult, { kind: 'method' }>['parameters'],
   name = 'getTasks',
+  isAbstract = false,
 ): AndroidApiMemberResult => ({
   kind: 'method',
   name,
   type: `(${parameters.map((parameter) => parameter.type).join(', ')}) -> ${type}`,
+  ...(isAbstract ? { isAbstract: true } : {}),
   returnType: type,
   parameters,
 });
@@ -79,6 +82,7 @@ const baseResult = (
   sourcePath: string,
   targetPaths: string[],
   ranges: AndroidApiVersionRangeResult[],
+  typePath?: AndroidApiResolvedType[],
 ): AndroidApiQueryResult => ({
   apiName,
   normalizedApiName: apiName,
@@ -89,6 +93,7 @@ const baseResult = (
   resolvedTarget: {
     kind: 'member',
     paths: targetPaths,
+    ...(typePath ? { typePath } : {}),
   },
   summary: {
     checkedTags: ranges.length,
@@ -98,6 +103,74 @@ const baseResult = (
   },
   ranges,
 });
+
+{
+  const abstractMethod = method('String', [], 'getValue', true);
+  const concreteMethod = method(
+    'String',
+    [{ name: 'flags', type: 'int' }],
+    'getValue',
+  );
+  const result = renderAndroidApiCode(
+    baseResult(
+      'AbstractService.getValue',
+      'core/java/android/app/AbstractService.java',
+      ['AbstractService', 'getValue'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [
+          abstractMethod,
+          concreteMethod,
+        ]),
+      ],
+      [{ name: 'AbstractService', kind: 'class', isAbstract: true }],
+    ),
+  );
+
+  assert.match(result.code, /public abstract class AbstractService \{/);
+  assert.match(result.code, /public abstract String getValue\(\);/);
+  assert.doesNotMatch(
+    result.code,
+    /getValue\(\) \{ throw new RuntimeException\(\); \}/,
+  );
+  assert.match(
+    result.code,
+    /public String getValue\(int flags\) \{ throw new RuntimeException\(\); \}/,
+  );
+}
+
+{
+  const transact: AndroidApiMemberResult = {
+    kind: 'method',
+    name: 'transact',
+    type: '(int, HwParcel, HwParcel, int) -> void',
+    returnType: 'void',
+    returnNullability: 'non-null',
+    parameters: [
+      { name: 'code', type: 'int', nullability: 'non-null' },
+      { name: 'request', type: 'HwParcel' },
+      { name: 'reply', type: 'HwParcel' },
+      { name: 'flags', type: 'int', nullability: 'non-null' },
+    ],
+  };
+  const result = renderAndroidApiCode(
+    baseResult(
+      'IHwBinder.transact',
+      'core/java/android/os/IHwBinder.java',
+      ['IHwBinder', 'transact'],
+      [range('8', 'O', 26, 'android-8.0.0_r1', [transact])],
+      [{ name: 'IHwBinder', kind: 'interface' }],
+    ),
+  );
+
+  assert.match(result.code, /public interface IHwBinder \{/);
+  assert.match(
+    result.code,
+    /void transact\(int code, HwParcel request, HwParcel reply, int flags\);/,
+  );
+  assert.doesNotMatch(result.code, /android\.annotation\.NonNull/);
+  assert.doesNotMatch(result.code, /@NonNull/);
+  assert.doesNotMatch(result.code, /transact\(.*RuntimeException/);
+}
 
 {
   const result = renderAndroidApiCode(
@@ -116,6 +189,7 @@ const baseResult = (
   assert.match(result.code, /^package android\.content\.pm;/);
   assert.doesNotMatch(result.code, /@RequiresApi\(Build\.VERSION_CODES\.O\)/);
   assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
+  assert.match(result.code, /import android\.annotation\.Nullable;/);
   assert.match(result.code, /public @Nullable String name;/);
   assert.doesNotMatch(result.code, /li\.songe\.remap\.RemapType/);
 }
@@ -408,11 +482,25 @@ const baseResult = (
       'core/java/android/app/IActivityTaskManager.aidl',
       ['IActivityTaskManager', 'getTasks'],
       [
-        range('10', 'Q', 29, 'android-10.0.0_r1', [methodA]),
-        range('12', 'S', 31, 'android-12.0.0_r1', [methodB]),
-        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [methodC]),
+        {
+          ...range('10', 'Q', 29, 'android-10.0.0_r1', [methodA]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+        {
+          ...range('12', 'S', 31, 'android-12.0.0_r1', [methodB]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+        {
+          ...range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [methodC]),
+          fromTagPosition: 'first-checked',
+        },
         range('13', 'TIRAMISU', 33, 'android-13.0.0_r2', [methodC]),
-        range('13', 'TIRAMISU', 33, 'android-13.0.0_r3', [methodB]),
+        {
+          ...range('13', 'TIRAMISU', 33, 'android-13.0.0_r3', [methodB]),
+          toTagPosition: 'last-checked',
+        },
       ],
     ),
   );
@@ -423,18 +511,69 @@ const baseResult = (
   assert.match(result.code, /import android\.os\.IBinder;/);
   assert.match(result.code, /import android\.os\.IInterface;/);
   assert.match(result.code, /import java\.util\.List;/);
-  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
-  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
+  assert.doesNotMatch(result.code, /@RequiresApi/);
+  assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.DeprecatedSinceApi/);
+  assert.doesNotMatch(result.code, /import android\.os\.Build;/);
   assert.match(
     result.code,
-    /package android\.app;\n\nimport android\.os\.Binder;\nimport android\.os\.Build;\nimport android\.os\.IBinder;\nimport android\.os\.IInterface;\n\nimport androidx\.annotation\.DeprecatedSinceApi;\nimport androidx\.annotation\.RequiresApi;\n\nimport java\.util\.List;/,
+    /\/\/ 10\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
   );
-  assert.equal(
-    result.declarations.filter(
-      (declaration) => declaration.requiresApi.alias === 'TIRAMISU',
-    ).length,
-    1,
+  assert.match(
+    result.code,
+    /\/\/ 12, 13\.0\.0_r3\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra\);/,
   );
+  assert.match(
+    result.code,
+    /\/\/ 13 - 13\.0\.0_r2\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
+  );
+}
+
+{
+  const getValue = method('String', [], 'getValue');
+  const internalAndroid13Range = rangeSpan(
+    '13',
+    'TIRAMISU',
+    33,
+    'android-13.0.0_r2',
+    '13',
+    'TIRAMISU',
+    33,
+    'android-13.0.0_r15',
+    [getValue],
+  );
+  const android14MissingRange: AndroidApiVersionRangeResult = {
+    ...range(
+      '14',
+      'UPSIDE_DOWN_CAKE',
+      34,
+      'android-14.0.0_r1',
+      [],
+      'api-not-found',
+    ),
+    fromTagPosition: 'first-checked',
+    toTagPosition: 'last-checked',
+  };
+  const android15Range: AndroidApiVersionRangeResult = {
+    ...range('15', 'VANILLA_ICE_CREAM', 35, 'android-15.0.0_r1', [getValue]),
+    fromTagPosition: 'first-checked',
+    toTagPosition: 'last-checked',
+  };
+  const result = renderAndroidApiCode(
+    baseResult(
+      'Example.getValue',
+      'core/java/android/app/Example.java',
+      ['Example', 'getValue'],
+      [internalAndroid13Range, android14MissingRange, android15Range],
+    ),
+  );
+
+  assert.match(
+    result.code,
+    /\/\/ 13\.0\.0_r2 - 13\.0\.0_r15, 15\n\s+public String getValue\(\)/,
+  );
+  assert.doesNotMatch(result.code, /\/\/ 13, 15/);
 }
 
 console.log('code-render tests passed');

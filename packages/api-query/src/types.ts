@@ -37,6 +37,13 @@ export interface AndroidApiSourceLocation {
 export interface AndroidApiResolvedTarget {
   kind: SearchTargetKind;
   paths: string[];
+  typePath?: AndroidApiResolvedType[];
+}
+
+export interface AndroidApiResolvedType {
+  name: string;
+  kind: 'class' | 'interface';
+  isAbstract?: true;
 }
 
 export interface AndroidApiResolution {
@@ -54,7 +61,10 @@ export interface CacheStore<T> {
   set(key: string, value: T): Promise<void>;
 }
 
-export type AndroidApiSourceProvider = 'github' | 'googlesource';
+export type AndroidApiSourceProvider =
+  | 'github'
+  | 'googlesource'
+  | 'github-googlesource';
 
 export interface AndroidApiQueryRuntime {
   fetchText(url: string): Promise<string>;
@@ -83,6 +93,7 @@ export type AndroidApiMemberResult =
       kind: 'method';
       name: string;
       type: string;
+      isAbstract?: true;
       returnType: string;
       returnNullability?: Nullability;
       parameters: ClassMemberParam[];
@@ -106,10 +117,14 @@ export interface AndroidApiVersionRangeResult {
   fromAlias: string;
   fromApiVersion: number;
   fromTag: string;
+  /** The endpoint is the first tag checked for this Android version in this query snapshot. */
+  fromTagPosition?: 'first-checked';
   toVersion: string;
   toAlias: string;
   toApiVersion: number;
   toTag: string;
+  /** The endpoint is the last tag checked in this query snapshot, not a permanent final tag. */
+  toTagPosition?: 'last-checked';
   missingReason?: AndroidApiMissingReason;
   members?: AndroidApiMemberResult[];
 }

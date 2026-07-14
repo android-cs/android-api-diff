@@ -11,7 +11,7 @@ const javaStructs = getJavaStructList(`
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 
-public class Example {
+public abstract class Example {
   @Nullable String maybeName;
   @android.annotation.NonNull String sureName;
   String unknownName;
@@ -31,6 +31,8 @@ public class Example {
     return key;
   }
 
+  abstract String loadName();
+
   void setName(@Nullable String name) {}
 }
 
@@ -41,6 +43,8 @@ interface ExampleApi {
 
 const javaExample = javaStructs.find((item) => item.name === 'Example');
 assert.ok(javaExample);
+assert.equal(Object.hasOwn(javaExample, 'isInterface'), false);
+assert.equal(javaExample.isAbstract, true);
 
 const maybeName = findMember(javaExample.members, 'maybeName');
 assert.equal(maybeName.kind, 'field');
@@ -78,6 +82,11 @@ const inferName = findMember(javaExample.members, 'inferName');
 assert.equal(inferName.kind, 'method');
 assert.equal(Object.hasOwn(inferName, 'returnNullability'), false);
 assert.equal(Object.hasOwn(inferName.parameters[0]!, 'nullability'), false);
+assert.equal(Object.hasOwn(inferName, 'isAbstract'), false);
+
+const loadName = findMember(javaExample.members, 'loadName');
+assert.equal(loadName.kind, 'method');
+assert.equal(loadName.isAbstract, true);
 
 const setName = findMember(javaExample.members, 'setName');
 assert.equal(setName.kind, 'method');
@@ -87,6 +96,7 @@ assert.equal(setName.parameters[0]?.nullability, 'nullable');
 
 const javaInterface = javaStructs.find((item) => item.name === 'ExampleApi');
 assert.ok(javaInterface);
+assert.equal(javaInterface.isInterface, true);
 const interfaceFindName = findMember(javaInterface.members, 'findName');
 assert.equal(interfaceFindName.kind, 'method');
 assert.equal(interfaceFindName.returnNullability, 'nullable');
@@ -110,6 +120,7 @@ parcelable ExampleParcelable {
 
 const aidlInterface = aidlStructs.find((item) => item.name === 'IExample');
 assert.ok(aidlInterface);
+assert.equal(aidlInterface.isInterface, true);
 
 const aidlFindName = findMember(aidlInterface.members, 'findName');
 assert.equal(aidlFindName.kind, 'method');
@@ -130,6 +141,7 @@ const aidlParcelable = aidlStructs.find(
   (item) => item.name === 'ExampleParcelable',
 );
 assert.ok(aidlParcelable);
+assert.equal(Object.hasOwn(aidlParcelable, 'isInterface'), false);
 
 const aidlMaybeName = findMember(aidlParcelable.members, 'maybeName');
 assert.equal(aidlMaybeName.kind, 'field');
