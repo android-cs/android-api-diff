@@ -115,16 +115,16 @@ const aidlFindName = findMember(aidlInterface.members, 'findName');
 assert.equal(aidlFindName.kind, 'method');
 assert.equal(aidlFindName.returnNullability, 'nullable');
 assert.equal(aidlFindName.parameters[0]?.nullability, 'nullable');
-assert.equal(aidlFindName.parameters[1]?.nullability, 'non-null');
+assert.equal(Object.hasOwn(aidlFindName.parameters[1]!, 'nullability'), false);
 
 const requiredName = findMember(aidlInterface.members, 'requiredName');
 assert.equal(requiredName.kind, 'method');
-assert.equal(requiredName.returnNullability, 'non-null');
-assert.equal(requiredName.parameters[0]?.nullability, 'non-null');
+assert.equal(Object.hasOwn(requiredName, 'returnNullability'), false);
+assert.equal(Object.hasOwn(requiredName.parameters[0]!, 'nullability'), false);
 
 const kind = findMember(aidlInterface.members, 'KIND');
 assert.equal(kind.kind, 'constant');
-assert.equal(kind.fieldNullability, 'non-null');
+assert.equal(Object.hasOwn(kind, 'fieldNullability'), false);
 
 const aidlParcelable = aidlStructs.find(
   (item) => item.name === 'ExampleParcelable',
@@ -137,10 +137,10 @@ assert.equal(aidlMaybeName.fieldNullability, 'nullable');
 
 const aidlSureName = findMember(aidlParcelable.members, 'sureName');
 assert.equal(aidlSureName.kind, 'field');
-assert.equal(aidlSureName.fieldNullability, 'non-null');
+assert.equal(Object.hasOwn(aidlSureName, 'fieldNullability'), false);
 
 const aidlCount = findMember(aidlParcelable.members, 'count');
 assert.equal(aidlCount.kind, 'field');
-assert.equal(aidlCount.fieldNullability, 'non-null');
+assert.equal(Object.hasOwn(aidlCount, 'fieldNullability'), false);
 
 console.log('nullability parser tests passed');

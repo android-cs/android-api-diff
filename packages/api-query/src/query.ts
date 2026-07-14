@@ -1,32 +1,36 @@
-import type { ClassStruct } from '@android-cs/api-parser';
+import type { ClassMember, ClassStruct } from '@android-cs/api-parser';
 import { getAIDLStructList, getJavaStructList } from '@android-cs/api-parser';
 import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
-import { searchFilePathByRefName } from './resolve.ts';
+import { searchFilePathByRefName, toAndroidApiResolution } from './resolve.ts';
 import { findStructByPath } from './struct.ts';
 import type {
   AndroidApiMemberResult,
+  AndroidApiMissingReason,
   AndroidApiQueryResult,
   AndroidApiQueryRuntime,
   AndroidApiSourceProvider,
   AndroidApiStructCacheEntry,
-  AndroidApiStructResult,
-  AndroidApiVersionResult,
+  AndroidApiVersionRangeResult,
   AndroidVersionItem,
   QueryAndroidApiOptions,
 } from './types.ts';
-import {
-  getGoogleContentUrl,
-  getGoogleSourceUrl,
-  getMirrorContentUrl,
-  getSourceUrlWithLine,
-  getVersionUrlBuilder,
-} from './url.ts';
+import { getGoogleContentUrl, getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v5';
-export const QUERY_CACHE_VERSION = 'query:v8';
+export const STRUCT_CACHE_VERSION = 'struct:v6';
+export const QUERY_CACHE_VERSION = 'query:v15';
 const DEFAULT_CONCURRENCY = 3;
+
+interface InternalAndroidApiVersionResult {
+  version: string;
+  alias: string;
+  apiVersion: number;
+  tag: string;
+  missingReason?: AndroidApiMissingReason;
+  signature?: string;
+  members?: AndroidApiMemberResult[];
+}
 
 const normalizeConcurrency = (value: number | undefined): number => {
   if (value === undefined || !Number.isFinite(value) || value < 1) {
@@ -120,28 +124,138 @@ const getSelectedTags = (
   options: QueryAndroidApiOptions,
 ): AndroidVersionItem[] => {
   const minSdk = options.minSdk ?? DEFAULT_MIN_SDK;
-  const maxSdk = options.maxSdk ?? Number.MAX_SAFE_INTEGER;
   return androidVersionList
-    .filter((v) => v.apiVersion >= minSdk && v.apiVersion <= maxSdk)
-    .map((version) => {
-      const tags =
-        options.tagStrategy === 'all' ? version.tags : version.tags.slice(-1);
-      return { ...version, tags };
-    })
+    .filter((v) => v.apiVersion >= minSdk)
     .filter((v) => v.tags.length > 0);
 };
 
-const toResultTarget = (
-  target: ClassStruct,
-  sourceUrl: string,
-): AndroidApiStructResult => {
+const cloneParameters = (
+  member: Extract<ClassMember, { parameters: unknown }>,
+) => {
+  return member.parameters.map((parameter) => ({ ...parameter }));
+};
+
+const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
+  if (member.kind === 'method') {
+    return {
+      kind: member.kind,
+      name: member.name,
+      type: member.type,
+      returnType: member.returnType,
+      ...(member.returnNullability
+        ? { returnNullability: member.returnNullability }
+        : {}),
+      parameters: cloneParameters(member),
+    };
+  }
+  if (member.kind === 'constructor') {
+    return {
+      kind: member.kind,
+      name: member.name,
+      type: member.type,
+      parameters: cloneParameters(member),
+    };
+  }
   return {
-    name: target.name,
-    loc: target.loc,
-    memberCount: target.members.length,
-    childCount: target.children?.length ?? 0,
-    sourceUrl: getSourceUrlWithLine(sourceUrl, target.loc),
+    kind: member.kind,
+    name: member.name,
+    type: member.type,
+    ...(member.fieldNullability
+      ? { fieldNullability: member.fieldNullability }
+      : {}),
   };
+};
+
+const getTagRevision = (tag: string): number => {
+  return Number(tag.match(/_r(\d+)$/)?.[1] ?? 0);
+};
+
+const compareVersionResults = (
+  a: InternalAndroidApiVersionResult,
+  b: InternalAndroidApiVersionResult,
+) => {
+  return (
+    a.apiVersion - b.apiVersion ||
+    getTagRevision(a.tag) - getTagRevision(b.tag) ||
+    a.tag.localeCompare(b.tag)
+  );
+};
+
+const toSemanticMember = (member: AndroidApiMemberResult) => {
+  return {
+    kind: member.kind,
+    name: member.name,
+    type: member.type,
+    ...('returnType' in member ? { returnType: member.returnType } : {}),
+    ...('returnNullability' in member
+      ? { returnNullability: member.returnNullability }
+      : {}),
+    ...('parameters' in member
+      ? {
+          parameters: member.parameters.map((parameter) => ({
+            name: parameter.name,
+            type: parameter.type,
+            nullability: parameter.nullability,
+          })),
+        }
+      : {}),
+    ...('fieldNullability' in member
+      ? { fieldNullability: member.fieldNullability }
+      : {}),
+  };
+};
+
+const toSemanticKey = (version: InternalAndroidApiVersionResult): string => {
+  return JSON.stringify({
+    missingReason: version.missingReason,
+    members: version.members?.map(toSemanticMember),
+  });
+};
+
+const toRange = (
+  version: InternalAndroidApiVersionResult,
+): AndroidApiVersionRangeResult => {
+  return {
+    fromVersion: version.version,
+    fromAlias: version.alias,
+    fromApiVersion: version.apiVersion,
+    fromTag: version.tag,
+    toVersion: version.version,
+    toAlias: version.alias,
+    toApiVersion: version.apiVersion,
+    toTag: version.tag,
+    ...(version.missingReason ? { missingReason: version.missingReason } : {}),
+    members: version.members,
+  };
+};
+
+const extendRange = (
+  range: AndroidApiVersionRangeResult,
+  version: InternalAndroidApiVersionResult,
+) => {
+  range.toVersion = version.version;
+  range.toAlias = version.alias;
+  range.toApiVersion = version.apiVersion;
+  range.toTag = version.tag;
+  range.members = version.members;
+};
+
+const compactVersionResults = (
+  versions: InternalAndroidApiVersionResult[],
+): AndroidApiVersionRangeResult[] => {
+  const ranges: AndroidApiVersionRangeResult[] = [];
+  let previousKey = '';
+  for (const version of versions) {
+    const key = toSemanticKey(version);
+    const lastRange = ranges.at(-1);
+    if (lastRange && key === previousKey) {
+      extendRange(lastRange, version);
+    } else {
+      ranges.push(toRange(version));
+      previousKey = key;
+    }
+  }
+  return ranges;
 };
 
 const getQueryCacheKey = (
@@ -153,8 +267,6 @@ const getQueryCacheKey = (
     sourceProvider,
     options.apiName.trim(),
     options.minSdk ?? '',
-    options.maxSdk ?? '',
-    options.tagStrategy ?? 'latest-per-version',
   ].join(':');
 };
 
@@ -180,31 +292,16 @@ export const queryAndroidApi = async (
       summary: {
         checkedTags: 0,
         foundTags: 0,
+        rangeCount: 0,
         signatures: [],
       },
-      versions: [],
+      ranges: [],
     };
     await runtime.queryCache?.set(cacheKey, result);
     return result;
   }
 
-  const builder = getVersionUrlBuilder(search.targetUrl);
-  if (!builder?.filePath) {
-    const result: AndroidApiQueryResult = {
-      apiName: options.apiName,
-      normalizedApiName,
-      search,
-      summary: {
-        checkedTags: 0,
-        foundTags: 0,
-        signatures: [],
-      },
-      versions: [],
-    };
-    await runtime.queryCache?.set(cacheKey, result);
-    return result;
-  }
-
+  const resolution = toAndroidApiResolution(search)!;
   const androidVersionList = getSelectedTags(
     await loadAndroidVersionList(runtime),
     options,
@@ -214,30 +311,28 @@ export const queryAndroidApi = async (
     await Promise.all(
       androidVersionList.flatMap((version) =>
         version.tags.map((tag) =>
-          limit(async (): Promise<AndroidApiVersionResult> => {
-            const taggedFilePath = tag + builder.filePath;
+          limit(async (): Promise<InternalAndroidApiVersionResult> => {
+            const taggedFilePath = `${tag}/${search.filePath}`;
             const { structs, sourceFileNotFound } =
               await getStructsByTaggedFile(
                 runtime,
                 sourceProvider,
                 taggedFilePath,
               );
-            const sourceUrl = getGoogleSourceUrl(taggedFilePath);
-            let target: AndroidApiStructResult | undefined;
+            let targetFound = false;
             let members: AndroidApiMemberResult[] | undefined;
-            let typeDesc = '';
+            let signature = '';
 
             if (!sourceFileNotFound) {
               if (search.targetKind === 'file') {
-                typeDesc = 'file';
+                targetFound = true;
               } else if (search.targetKind === 'class') {
                 const foundTarget = findStructByPath(
                   structs,
                   search.targetPaths,
                 );
                 if (foundTarget) {
-                  target = toResultTarget(foundTarget, sourceUrl);
-                  typeDesc = 'class';
+                  targetFound = true;
                 }
               } else {
                 const propName = search.targetPaths.at(-1);
@@ -250,17 +345,14 @@ export const queryAndroidApi = async (
                     (v) => v.name === propName,
                   );
                   if (matchedMembers.length > 0) {
-                    target = toResultTarget(foundTarget, sourceUrl);
-                    members = matchedMembers
+                    targetFound = true;
+                    members = [...matchedMembers]
                       .sort(
                         (a, b) =>
                           (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
                       )
-                      .map((member) => ({
-                        ...member,
-                        sourceUrl: getSourceUrlWithLine(sourceUrl, member.loc),
-                      }));
-                    typeDesc = members.map((v) => v.type).join('\n');
+                      .map(toResultMember);
+                    signature = members.map((v) => v.type).join('\n');
                   }
                 }
               }
@@ -269,7 +361,7 @@ export const queryAndroidApi = async (
             const isApiFound =
               search.targetKind === 'file'
                 ? !sourceFileNotFound
-                : !!target || !!members?.length;
+                : targetFound || !!members?.length;
             const missingReason = isApiFound
               ? undefined
               : sourceFileNotFound
@@ -282,33 +374,34 @@ export const queryAndroidApi = async (
               apiVersion: version.apiVersion,
               tag,
               ...(missingReason ? { missingReason } : {}),
-              ...(typeDesc ? { typeDesc } : {}),
-              sourceUrl,
-              target,
+              ...(signature ? { signature } : {}),
               members,
             };
           }),
         ),
       ),
     )
-  ).sort((a, b) => a.apiVersion - b.apiVersion || a.tag.localeCompare(b.tag));
+  ).sort(compareVersionResults);
 
   const foundVersions = versions.filter((v) => !v.missingReason);
+  const ranges = compactVersionResults(versions);
   const signatures = Array.from(
-    new Set(foundVersions.flatMap((v) => (v.typeDesc ? [v.typeDesc] : []))),
+    new Set(foundVersions.flatMap((v) => (v.signature ? [v.signature] : []))),
   );
   const result: AndroidApiQueryResult = {
     apiName: options.apiName,
     normalizedApiName,
-    search,
+    source: resolution.source,
+    resolvedTarget: resolution.resolvedTarget,
     summary: {
       checkedTags: versions.length,
       foundTags: foundVersions.length,
+      rangeCount: ranges.length,
       firstFoundTag: foundVersions[0]?.tag,
       lastFoundTag: foundVersions.at(-1)?.tag,
       signatures,
     },
-    versions,
+    ranges,
   };
   await runtime.queryCache?.set(cacheKey, result);
   return result;

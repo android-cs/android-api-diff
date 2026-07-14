@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { loadAidlJavaFiles, searchFilePathByRefName } from '@android-cs/api-query';
+import {
+  loadAidlJavaFiles,
+  searchFilePathByRefName,
+  toAndroidApiResolution,
+} from '@android-cs/api-query';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { z } from 'zod';
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
@@ -29,26 +33,22 @@ server.registerTool(
   {
     title: 'Query Android API',
     description:
-      'Resolve an Android Java/AIDL API name and return cross-version declarations, signatures, and source links.',
+      'Resolve an Android Java/AIDL API name and return cross-version ranges, signatures, and source coordinates.',
     inputSchema: z.object({
       apiName: z
         .string()
         .min(1)
         .describe(
           'API name, such as IActivityManager.getTasks, ActivityThread#currentApplication, or android.app.IActivityManager.',
-      ),
+        ),
       minSdk: z.number().int().optional(),
-      maxSdk: z.number().int().optional(),
-      tagStrategy: z.enum(['latest-per-version', 'all']).optional(),
     }),
   },
-  async ({ apiName, minSdk, maxSdk, tagStrategy }) => {
+  async ({ apiName, minSdk }) => {
     return toJsonText(
       await queryAndroidApi(runtime, {
         apiName,
         minSdk,
-        maxSdk,
-        tagStrategy,
       }),
     );
   },
@@ -68,7 +68,9 @@ server.registerTool(
     const aidlJavaFiles = await loadAidlJavaFiles(runtime);
     return toJsonText({
       apiName,
-      result: searchFilePathByRefName(apiName, aidlJavaFiles),
+      result: toAndroidApiResolution(
+        searchFilePathByRefName(apiName, aidlJavaFiles),
+      ),
     });
   },
 );
@@ -82,23 +84,20 @@ server.registerTool(
     inputSchema: z.object({
       apiNames: z.array(z.string().min(1)).min(1),
       minSdk: z.number().int().optional(),
-      maxSdk: z.number().int().optional(),
-      tagStrategy: z.enum(['latest-per-version', 'all']).optional(),
     }),
   },
-  async ({ apiNames, minSdk, maxSdk, tagStrategy }) => {
+  async ({ apiNames, minSdk }) => {
     const results = [];
     for (const apiName of apiNames) {
       const result = await queryAndroidApi(runtime, {
         apiName,
         minSdk,
-        maxSdk,
-        tagStrategy,
       });
       results.push({
         apiName,
         checkedTags: result.summary.checkedTags,
         foundTags: result.summary.foundTags,
+        rangeCount: result.summary.rangeCount,
       });
     }
     return toJsonText({

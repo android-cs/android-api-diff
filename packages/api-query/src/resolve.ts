@@ -1,4 +1,8 @@
-import type { FileTarget, SearchFromData } from './types.ts';
+import type {
+  AndroidApiResolution,
+  FileTarget,
+  SearchFromData,
+} from './types.ts';
 import { fixFilePath, getSourceTargetUrl } from './url.ts';
 
 const aidlFileNameRegs = [/^I[A-Z].*/, /\.I[A-Z].*/];
@@ -97,9 +101,26 @@ const createSearchFromData = (
   targetKind: SearchFromData['targetKind'],
 ): SearchFromData => {
   return {
+    filePath,
     targetUrl: getSourceTargetUrl(filePath),
     targetPaths,
     targetKind,
+  };
+};
+
+export const toAndroidApiResolution = (
+  search: SearchFromData | undefined,
+): AndroidApiResolution | undefined => {
+  if (!search) return;
+  return {
+    source: {
+      repo: 'platform/frameworks/base',
+      path: search.filePath,
+    },
+    resolvedTarget: {
+      kind: search.targetKind,
+      paths: search.targetPaths,
+    },
   };
 };
 

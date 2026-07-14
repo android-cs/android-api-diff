@@ -61,8 +61,8 @@ const normalizeMinSdk = (value: unknown) => {
   const sdk = Number(value);
   if (!Number.isInteger(sdk)) return DEFAULT_MIN_SDK;
   const minSdk = minSdkOptions[0];
-  const maxSdk = minSdkOptions.at(-1)!;
-  return Math.min(Math.max(sdk, minSdk), maxSdk);
+  const maxAllowedSdk = minSdkOptions.at(-1)!;
+  return Math.min(Math.max(sdk, minSdk), maxAllowedSdk);
 };
 
 const normalizeSourceLinkTarget = (value: unknown): SourceLinkTarget => {
@@ -225,6 +225,7 @@ export const useSharedHomeState = createSharedComposable(() => {
   );
 
   const emptySearchFromData: SearchFromData = {
+    filePath: '',
     targetUrl: '',
     targetPaths: [],
     targetKind: 'file',

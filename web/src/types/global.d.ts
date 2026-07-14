@@ -28,6 +28,7 @@ interface DiffTypeItem {
 }
 type SearchTargetKind = 'file' | 'class' | 'member';
 interface SearchFromData {
+  filePath: string;
   targetUrl: string;
   targetPaths: string[];
   targetKind: SearchTargetKind;

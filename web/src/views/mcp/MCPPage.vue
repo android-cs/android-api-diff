@@ -4,6 +4,7 @@ import androidVersionList from '@/utils/android.data';
 import {
   loadAidlJavaFiles,
   searchFilePathByRefName,
+  toAndroidApiResolution,
   type AndroidApiQueryRuntime,
   type QueryAndroidApiOptions,
 } from '@android-cs/api-query';
@@ -30,7 +31,8 @@ const tools: ToolOption[] = [
   {
     name: 'query_android_api',
     label: 'Query',
-    description: 'Fetch cross-version declarations, signatures, and links.',
+    description:
+      'Fetch cross-version ranges, signatures, and source coordinates.',
   },
   {
     name: 'warm_android_api_cache',
@@ -45,10 +47,7 @@ const apiNamesText = ref(
   ['IActivityManager.getTasks', 'ActivityThread.currentApplication'].join('\n'),
 );
 const minSdk = ref<string | number>('35');
-const maxSdk = ref<string | number>('35');
 const concurrency = ref<string | number>('3');
-const tagStrategy =
-  ref<QueryAndroidApiOptions['tagStrategy']>('latest-per-version');
 const loading = ref(false);
 const errorText = ref('');
 const resultText = ref('');
@@ -83,8 +82,6 @@ const parseConcurrency = (
 const getVersionOptions = () => {
   return {
     minSdk: parseOptionalNumber(minSdk.value),
-    maxSdk: parseOptionalNumber(maxSdk.value),
-    tagStrategy: tagStrategy.value,
   };
 };
 
@@ -150,7 +147,9 @@ const runResolveTool = async () => {
     arguments: {
       apiName: apiName.value.trim(),
     },
-    result: searchFilePathByRefName(apiName.value, files),
+    result: toAndroidApiResolution(
+      searchFilePathByRefName(apiName.value, files),
+    ),
   };
 };
 
@@ -166,6 +165,7 @@ const runWarmTool = async () => {
       apiName: name,
       checkedTags: result.summary.checkedTags,
       foundTags: result.summary.foundTags,
+      rangeCount: result.summary.rangeCount,
       signatures: result.summary.signatures,
     });
   }
@@ -396,45 +396,6 @@ const runActiveTool = async () => {
                     outline-none
                     focus="b-gray-500"
                   />
-                </label>
-                <label flex flex-col gap-6px>
-                  <span text-12px uppercase tracking-1px text-gray-500>
-                    maxSdk
-                  </span>
-                  <input
-                    v-model="maxSdk"
-                    type="number"
-                    b-1px
-                    b-solid
-                    b-gray-200
-                    rounded-4px
-                    px-8px
-                    py-6px
-                    outline-none
-                    focus="b-gray-500"
-                  />
-                </label>
-                <label flex flex-col gap-6px>
-                  <span text-12px uppercase tracking-1px text-gray-500>
-                    tagStrategy
-                  </span>
-                  <select
-                    v-model="tagStrategy"
-                    b-1px
-                    b-solid
-                    b-gray-200
-                    rounded-4px
-                    px-8px
-                    py-6px
-                    outline-none
-                    bg-white
-                    focus="b-gray-500"
-                  >
-                    <option value="latest-per-version">
-                      latest-per-version
-                    </option>
-                    <option value="all">all</option>
-                  </select>
                 </label>
                 <label flex flex-col gap-6px>
                   <span text-12px uppercase tracking-1px text-gray-500>

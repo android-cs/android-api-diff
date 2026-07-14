@@ -15,7 +15,6 @@ import {
 import AIDLParser from './AIDLParser.ts';
 
 const nullableAnnotationNames = new Set(['nullable']);
-const nonNullAnnotationNames = new Set(['nonnull', 'notnull', 'non_null']);
 
 const getAnnotationName = (
   annotation: AnnotationContext | null | undefined,
@@ -32,9 +31,6 @@ const getAnnotationNullability = (
   if (names.some((name) => nullableAnnotationNames.has(name))) {
     return 'nullable';
   }
-  if (names.some((name) => nonNullAnnotationNames.has(name))) {
-    return 'non-null';
-  }
 };
 
 const getAttributeAnnotations = (
@@ -43,20 +39,14 @@ const getAttributeAnnotations = (
   return attributes?.annotation_list() ?? [];
 };
 
-const getAidlNullability = (
-  annotations: (AnnotationContext | null | undefined)[],
-): Nullability => {
-  const annotationNullability = getAnnotationNullability(annotations);
-  return annotationNullability ?? 'non-null';
-};
-
 const getTypeInfo = (
   typeCtx: TypeContext,
   annotations: (AnnotationContext | null | undefined)[] = [],
-) => {
+): { type: string; nullability?: Nullability } => {
+  const nullability = getAnnotationNullability(annotations);
   return {
     type: typeCtx.getText(),
-    nullability: getAidlNullability(annotations),
+    ...(nullability ? { nullability } : {}),
   };
 };
 
@@ -115,7 +105,9 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
         return {
           name: parameter.variableDeclarator().IDENTIFIER().getText(),
           type: typeInfo.type,
-          nullability: typeInfo.nullability,
+          ...(typeInfo.nullability
+            ? { nullability: typeInfo.nullability }
+            : {}),
         };
       },
     );
@@ -125,7 +117,9 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
       type: toMethodType(parameters, returnInfo.type),
       loc: id.symbol.line,
       returnType: returnInfo.type,
-      returnNullability: returnInfo.nullability,
+      ...(returnInfo.nullability
+        ? { returnNullability: returnInfo.nullability }
+        : {}),
       parameters,
       parameterCount: parameters.length,
     });
@@ -143,7 +137,9 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
         name: id.getText(),
         type: typeInfo.type,
         loc: id.symbol.line,
-        fieldNullability: typeInfo.nullability,
+        ...(typeInfo.nullability
+          ? { fieldNullability: typeInfo.nullability }
+          : {}),
       });
     }
   };
@@ -160,7 +156,9 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
       name: id.getText(),
       type: typeInfo.type,
       loc: id.symbol.line,
-      fieldNullability: typeInfo.nullability,
+      ...(typeInfo.nullability
+        ? { fieldNullability: typeInfo.nullability }
+        : {}),
     });
   };
   ParseTreeWalker.DEFAULT.walk(listener, result);

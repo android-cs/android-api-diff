@@ -1,4 +1,8 @@
-import type { ClassMember, ClassStruct } from '@android-cs/api-parser';
+import type {
+  ClassMemberParam,
+  ClassStruct,
+  Nullability,
+} from '@android-cs/api-parser';
 
 export interface AndroidVersionInfo {
   version: string;
@@ -19,9 +23,25 @@ export interface VersionUrlBuilder {
 export type SearchTargetKind = 'file' | 'class' | 'member';
 
 export interface SearchFromData {
+  filePath: string;
   targetUrl: string;
   targetPaths: string[];
   targetKind: SearchTargetKind;
+}
+
+export interface AndroidApiSourceLocation {
+  repo: 'platform/frameworks/base';
+  path: string;
+}
+
+export interface AndroidApiResolvedTarget {
+  kind: SearchTargetKind;
+  paths: string[];
+}
+
+export interface AndroidApiResolution {
+  source: AndroidApiSourceLocation;
+  resolvedTarget: AndroidApiResolvedTarget;
 }
 
 export interface FileTarget {
@@ -49,54 +69,63 @@ export interface AndroidApiQueryRuntime {
 export interface QueryAndroidApiOptions {
   apiName: string;
   minSdk?: number;
-  maxSdk?: number;
-  tagStrategy?: 'latest-per-version' | 'all';
   concurrency?: number;
 }
 
-export type AndroidApiMemberResult = ClassMember & {
-  sourceUrl: string;
-};
-
-export interface AndroidApiStructResult {
-  name: string;
-  loc: number;
-  memberCount: number;
-  childCount: number;
-  sourceUrl: string;
-}
+export type AndroidApiMemberResult =
+  | {
+      kind: 'field' | 'constant';
+      name: string;
+      type: string;
+      fieldNullability?: Nullability;
+    }
+  | {
+      kind: 'method';
+      name: string;
+      type: string;
+      returnType: string;
+      returnNullability?: Nullability;
+      parameters: ClassMemberParam[];
+    }
+  | {
+      kind: 'constructor';
+      name: string;
+      type: string;
+      parameters: ClassMemberParam[];
+    };
 
 export interface AndroidApiStructCacheEntry {
   structs: ClassStruct[];
   sourceFileNotFound: boolean;
 }
 
-export type AndroidApiMissingReason =
-  | 'source-file-not-found'
-  | 'api-not-found';
+export type AndroidApiMissingReason = 'source-file-not-found' | 'api-not-found';
 
-export interface AndroidApiVersionResult {
-  version: string;
-  alias: string;
-  apiVersion: number;
-  tag: string;
+export interface AndroidApiVersionRangeResult {
+  fromVersion: string;
+  fromAlias: string;
+  fromApiVersion: number;
+  fromTag: string;
+  toVersion: string;
+  toAlias: string;
+  toApiVersion: number;
+  toTag: string;
   missingReason?: AndroidApiMissingReason;
-  typeDesc?: string;
-  sourceUrl: string;
-  target?: AndroidApiStructResult;
   members?: AndroidApiMemberResult[];
 }
 
 export interface AndroidApiQueryResult {
   apiName: string;
   normalizedApiName: string;
-  search?: SearchFromData;
+  source?: AndroidApiSourceLocation;
+  resolvedTarget?: AndroidApiResolvedTarget;
   summary: {
     checkedTags: number;
     foundTags: number;
+    rangeCount: number;
     firstFoundTag?: string;
     lastFoundTag?: string;
     signatures: string[];
   };
-  versions: AndroidApiVersionResult[];
+  ranges: AndroidApiVersionRangeResult[];
 }
