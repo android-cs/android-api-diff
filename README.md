@@ -25,9 +25,9 @@ Useful environment variables:
 
 Tools:
 
-- `generate_android_api_code`: generate a Java hidden-API skeleton from cross-version signature ranges.
+- `generate_android_api_code`: generate Java code for a hidden Android member API; it performs the cross-version query internally.
 - `resolve_android_api`: resolve an API name to file, target path, and target kind.
-- `query_android_api`: query compact cross-version signature ranges and source coordinates.
+- `query_android_api`: inspect exact cross-version signatures, tag ranges, missing reasons, and source metadata.
 - `warm_android_api_cache`: preload results for a list of API names.
 
 ![img](https://e.gkd.li/b191a715-9014-4f43-b566-1104f6a1b1f0)

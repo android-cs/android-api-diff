@@ -34,7 +34,7 @@ server.registerTool(
   {
     title: 'Generate Android API Code',
     description:
-      'Generate a compact Java hidden-API skeleton from Android API diff ranges.',
+      'Generate Java code for a hidden Android member API. This tool performs the cross-version query internally; do not call query_android_api first.',
     inputSchema: z.object({
       apiName: z
         .string()
@@ -58,9 +58,9 @@ server.registerTool(
 server.registerTool(
   'query_android_api',
   {
-    title: 'Query Android API',
+    title: 'Inspect Android API Versions',
     description:
-      'Resolve an Android Java/AIDL API name and return compact cross-version signature ranges. Sparse endpoint metadata marks fromTagPosition as first-checked or toTagPosition as last-checked when that endpoint is the first or last tag checked for its Android version in the current query snapshot; last-checked does not claim that no later tag can be released.',
+      'Inspect exact cross-version signatures, tag ranges, missing reasons, and source metadata for an Android Java/AIDL API. Use generate_android_api_code instead when Java hidden-API code is needed. Endpoint positions are relative to the current query snapshot; last-checked does not mean permanently final.',
     inputSchema: z.object({
       apiName: z
         .string()
