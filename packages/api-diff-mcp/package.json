@@ -1,15 +1,26 @@
 {
   "name": "@android-cs/api-diff-mcp",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "bin": {
+      "android-api-diff-mcp": "./dist/index.js"
+    }
+  },
   "files": [
-    "src/**/*.ts"
+    "dist"
   ],
   "bin": {
     "android-api-diff-mcp": "./src/index.ts"
   },
   "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "tsdown",
     "start": "node src/index.ts",
     "type-check": "tsc"
   },

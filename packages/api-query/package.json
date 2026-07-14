@@ -1,29 +1,35 @@
 {
   "name": "@android-cs/api-query",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "exports": {
+      ".": "./dist/index.js",
+      "./code": "./dist/code.js",
+      "./code-render": "./dist/code-render.js",
+      "./query": "./dist/query.js"
+    }
+  },
   "files": [
-    "src/**/*.ts"
+    "dist"
   ],
   "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "tsdown",
     "test:code-render": "node scripts/code-render.test.ts",
     "test:query": "node scripts/query.test.ts",
     "type-check": "tsc"
   },
   "exports": {
-    ".": {
-      "import": "./src/index.ts"
-    },
-    "./code": {
-      "import": "./src/code.ts"
-    },
-    "./code-render": {
-      "import": "./src/code-render.ts"
-    },
-    "./query": {
-      "import": "./src/query.ts"
-    }
+    ".": "./src/index.ts",
+    "./code": "./src/code.ts",
+    "./code-render": "./src/code-render.ts",
+    "./query": "./src/query.ts"
   },
   "dependencies": {
     "@android-cs/api-parser": "workspace:*",

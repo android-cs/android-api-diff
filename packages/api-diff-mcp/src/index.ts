@@ -9,6 +9,7 @@ import {
 import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { z } from 'zod';
+import packageJson from '../package.json' with { type: 'json' };
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
 
 const runtime = createNodeRuntime();
@@ -26,7 +27,7 @@ const toJsonText = (value: unknown) => {
 
 const server = new McpServer({
   name: 'android-api-diff',
-  version: '0.0.0',
+  version: packageJson.version,
 });
 
 server.registerTool(

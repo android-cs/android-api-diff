@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - uses: pnpm/action-setup@v6
+
+      - run: pnpm install
+
+      - run: |
+          pnpm -F @android-cs/api-parser publish --no-git-checks
+          pnpm -F @android-cs/api-query publish --no-git-checks
+          pnpm -F @android-cs/api-diff-mcp publish --no-git-checks
+
+      - uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body_path: ./CHANGELOG.md

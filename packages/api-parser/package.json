@@ -1,20 +1,28 @@
 {
   "name": "@android-cs/api-parser",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "exports": {
+      ".": "./dist/index.js"
+    }
+  },
   "files": [
-    "src/**/*.ts",
-    "src/**/*.g4"
+    "dist"
   ],
   "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "tsdown",
     "test:nullability": "node scripts/nullability.test.ts",
     "type-check": "tsc"
   },
   "exports": {
-    ".": {
-      "import": "./src/index.ts"
-    }
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "antlr4": "^4.13.2"
