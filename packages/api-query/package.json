@@ -38,6 +38,6 @@
   },
   "dependencies": {
     "@android-cs/api-parser": "workspace:*",
-    "p-limit": "^7.3.0"
+    "p-limit": "catalog:"
   }
 }

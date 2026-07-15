@@ -184,78 +184,156 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@modelcontextprotocol/server':
+      specifier: ^2.0.0-beta.3
+      version: 2.0.0-beta.3
+    '@tsconfig/node20':
+      specifier: ^20.1.9
+      version: 20.1.9
+    '@types/lodash-es':
+      specifier: ^4.17.12
+      version: 4.17.12
+    '@types/node':
+      specifier: ^25.9.3
+      version: 25.9.3
+    '@vitejs/plugin-legacy':
+      specifier: ^8.0.2
+      version: 8.0.2
+    '@vitejs/plugin-vue':
+      specifier: ^6.0.7
+      version: 6.0.7
+    '@vue/tsconfig':
+      specifier: ^0.9.1
+      version: 0.9.1
+    '@vueuse/core':
+      specifier: ^14.3.0
+      version: 14.3.0
+    '@vueuse/router':
+      specifier: ^14.3.0
+      version: 14.3.0
+    antlr4:
+      specifier: ^4.13.2
+      version: 4.13.2
+    localforage:
+      specifier: ^1.10.0
+      version: 1.10.0
+    lodash-es:
+      specifier: ^4.18.1
+      version: 4.18.1
+    normalize.css:
+      specifier: ^8.0.1
+      version: 8.0.1
+    p-limit:
+      specifier: ^7.3.0
+      version: 7.3.0
+    prettier:
+      specifier: ^3.8.4
+      version: 3.8.4
+    tsdown:
+      specifier: 0.22.7
+      version: 0.22.7
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
+    unocss:
+      specifier: ^66.7.2
+      version: 66.7.2
+    unplugin-data:
+      specifier: ^0.1.1
+      version: 0.1.1
+    unplugin-import-defer:
+      specifier: ^0.2.0
+      version: 0.2.0
+    vite:
+      specifier: ^8.0.16
+      version: 8.0.16
+    vue:
+      specifier: ^3.5.38
+      version: 3.5.38
+    vue-router:
+      specifier: ^5.1.0
+      version: 5.1.0
+    vue-tsc:
+      specifier: ^3.3.5
+      version: 3.3.5
+    zod:
+      specifier: ^4.4.3
+      version: 4.4.3
+
 importers:
 
   .:
     dependencies:
       '@tsconfig/node20':
-        specifier: ^20.1.9
+        specifier: 'catalog:'
         version: 20.1.9
       '@types/lodash-es':
-        specifier: ^4.17.12
+        specifier: 'catalog:'
         version: 4.17.12
       '@types/node':
-        specifier: ^25.9.3
+        specifier: 'catalog:'
         version: 25.9.3
       '@vitejs/plugin-legacy':
-        specifier: ^8.0.2
+        specifier: 'catalog:'
         version: 8.0.2(terser@5.44.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))
       '@vitejs/plugin-vue':
-        specifier: ^6.0.7
+        specifier: 'catalog:'
         version: 6.0.7(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.3))
       '@vue/tsconfig':
-        specifier: ^0.9.1
+        specifier: 'catalog:'
         version: 0.9.1(typescript@6.0.3)(vue@3.5.38(typescript@6.0.3))
       '@vueuse/core':
-        specifier: ^14.3.0
+        specifier: 'catalog:'
         version: 14.3.0(vue@3.5.38(typescript@6.0.3))
       '@vueuse/router':
-        specifier: ^14.3.0
+        specifier: 'catalog:'
         version: 14.3.0(vue-router@5.1.0(@vue/compiler-sfc@3.5.38)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.3)))(vue@3.5.38(typescript@6.0.3))
       antlr4:
-        specifier: ^4.13.2
+        specifier: 'catalog:'
         version: 4.13.2
       localforage:
-        specifier: ^1.10.0
+        specifier: 'catalog:'
         version: 1.10.0
       lodash-es:
-        specifier: ^4.18.1
+        specifier: 'catalog:'
         version: 4.18.1
       normalize.css:
-        specifier: ^8.0.1
+        specifier: 'catalog:'
         version: 8.0.1
       p-limit:
-        specifier: ^7.3.0
+        specifier: 'catalog:'
         version: 7.3.0
       prettier:
-        specifier: ^3.8.4
+        specifier: 'catalog:'
         version: 3.8.4
       tsdown:
-        specifier: 0.22.7
+        specifier: 'catalog:'
         version: 0.22.7(tsx@4.23.0)(typescript@6.0.3)(vue-tsc@3.3.5(typescript@6.0.3))
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       unocss:
-        specifier: ^66.7.2
+        specifier: 'catalog:'
         version: 66.7.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))
       unplugin-data:
-        specifier: ^0.1.1
+        specifier: 'catalog:'
         version: 0.1.1(esbuild@0.28.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))
       unplugin-import-defer:
-        specifier: ^0.2.0
+        specifier: 'catalog:'
         version: 0.2.0(esbuild@0.28.1)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))
       vite:
-        specifier: ^8.0.16
+        specifier: 'catalog:'
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0)
       vue:
-        specifier: ^3.5.38
+        specifier: 'catalog:'
         version: 3.5.38(typescript@6.0.3)
       vue-router:
-        specifier: ^5.1.0
+        specifier: 'catalog:'
         version: 5.1.0(@vue/compiler-sfc@3.5.38)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.44.1)(tsx@4.23.0)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.3))
       vue-tsc:
-        specifier: ^3.3.5
+        specifier: 'catalog:'
         version: 3.3.5(typescript@6.0.3)
 
   packages/api-diff-mcp:
@@ -264,16 +342,16 @@ importers:
         specifier: workspace:*
         version: link:../api-query
       '@modelcontextprotocol/server':
-        specifier: ^2.0.0-beta.3
+        specifier: 'catalog:'
         version: 2.0.0-beta.3
       zod:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
 
   packages/api-parser:
     dependencies:
       antlr4:
-        specifier: ^4.13.2
+        specifier: 'catalog:'
         version: 4.13.2
 
   packages/api-query:
@@ -282,7 +360,7 @@ importers:
         specifier: workspace:*
         version: link:../api-parser
       p-limit:
-        specifier: ^7.3.0
+        specifier: 'catalog:'
         version: 7.3.0
 
   web:

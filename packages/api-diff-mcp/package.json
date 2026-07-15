@@ -30,8 +30,8 @@
     "type-check": "tsc"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.0.0-beta.3",
+    "@modelcontextprotocol/server": "catalog:",
     "@android-cs/api-query": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "catalog:"
   }
 }

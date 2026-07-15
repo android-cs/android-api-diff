@@ -30,6 +30,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "antlr4": "^4.13.2"
+    "antlr4": "catalog:"
   }
 }
