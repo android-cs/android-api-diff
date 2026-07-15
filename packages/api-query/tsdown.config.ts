@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsdown';
+import packageJson from './package.json' with { type: 'json' };
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/code.ts', 'src/code-render.ts', 'src/query.ts'],
+  entry: Object.values(packageJson.exports),
   dts: true,
   fixedExtension: false,
 });
