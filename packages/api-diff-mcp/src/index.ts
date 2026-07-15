@@ -5,6 +5,7 @@ import {
   loadAidlJavaFiles,
   searchFilePathByRefName,
   toAndroidApiResolution,
+  type AndroidApiQueryProgress,
 } from '@android-cs/api-query';
 import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
@@ -13,6 +14,77 @@ import packageJson from '../package.json' with { type: 'json' };
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
 
 const runtime = createNodeRuntime();
+const PROGRESS_NOTIFICATION_INTERVAL_MS = 1_000;
+
+interface McpProgressUpdate extends Record<string, unknown> {
+  progress: number;
+  total?: number;
+  message?: string;
+}
+
+interface McpProgressNotification {
+  method: 'notifications/progress';
+  params: McpProgressUpdate & {
+    progressToken: string | number;
+  };
+}
+
+const createProgressReporter = (
+  progressToken: string | number | undefined,
+  notify: (notification: McpProgressNotification) => Promise<void>,
+) => {
+  let lastProgress = Number.NEGATIVE_INFINITY;
+  let lastNotificationAt = Number.NEGATIVE_INFINITY;
+  let pending = Promise.resolve();
+
+  const report = (update: McpProgressUpdate): Promise<void> => {
+    if (progressToken === undefined || update.progress <= lastProgress) {
+      return pending;
+    }
+    const now = Date.now();
+    const isInitial = update.progress === 0;
+    const isFinal =
+      update.total !== undefined && update.progress >= update.total;
+    if (
+      !isInitial &&
+      !isFinal &&
+      now - lastNotificationAt < PROGRESS_NOTIFICATION_INTERVAL_MS
+    ) {
+      return pending;
+    }
+
+    lastProgress = update.progress;
+    lastNotificationAt = now;
+    pending = pending.then(() =>
+      notify({
+        method: 'notifications/progress',
+        params: {
+          progressToken,
+          ...update,
+        },
+      }),
+    );
+    return pending;
+  };
+
+  return {
+    report,
+    flush: () => pending,
+  };
+};
+
+const toMcpQueryProgress = (
+  apiName: string,
+  progress: AndroidApiQueryProgress,
+): McpProgressUpdate => {
+  return {
+    progress: progress.completedTags,
+    total: progress.totalTags,
+    message: progress.currentTag
+      ? `${apiName}: checked ${progress.currentTag} (${progress.completedTags}/${progress.totalTags})`
+      : `${apiName}: checking ${progress.totalTags} Android tags`,
+  };
+};
 
 const toJsonText = (value: unknown) => {
   return {
@@ -46,13 +118,30 @@ server.registerTool(
       minSdk: z.number().int().optional(),
     }),
   },
-  async ({ apiName, minSdk }) => {
-    return toJsonText(
-      await generateAndroidApiCode(runtime, {
-        apiName,
-        minSdk,
-      }),
+  async ({ apiName, minSdk }, ctx) => {
+    const progress = createProgressReporter(
+      ctx.mcpReq._meta?.progressToken,
+      (notification) => ctx.mcpReq.notify(notification),
     );
+    await progress.report({
+      progress: 0,
+      message: `${apiName}: resolving API and checking cache`,
+    });
+    const result = await generateAndroidApiCode(runtime, {
+      apiName,
+      minSdk,
+      signal: ctx.mcpReq.signal,
+      onProgress: (update) =>
+        progress.report(toMcpQueryProgress(apiName, update)),
+    });
+    const checkedTags = Math.max(result.summary.checkedTags, 1);
+    await progress.report({
+      progress: checkedTags,
+      total: checkedTags,
+      message: `${apiName}: generation complete`,
+    });
+    await progress.flush();
+    return toJsonText(result);
   },
 );
 
@@ -72,13 +161,30 @@ server.registerTool(
       minSdk: z.number().int().optional(),
     }),
   },
-  async ({ apiName, minSdk }) => {
-    return toJsonText(
-      await queryAndroidApi(runtime, {
-        apiName,
-        minSdk,
-      }),
+  async ({ apiName, minSdk }, ctx) => {
+    const progress = createProgressReporter(
+      ctx.mcpReq._meta?.progressToken,
+      (notification) => ctx.mcpReq.notify(notification),
     );
+    await progress.report({
+      progress: 0,
+      message: `${apiName}: resolving API and checking cache`,
+    });
+    const result = await queryAndroidApi(runtime, {
+      apiName,
+      minSdk,
+      signal: ctx.mcpReq.signal,
+      onProgress: (update) =>
+        progress.report(toMcpQueryProgress(apiName, update)),
+    });
+    const checkedTags = Math.max(result.summary.checkedTags, 1);
+    await progress.report({
+      progress: checkedTags,
+      total: checkedTags,
+      message: `${apiName}: query complete`,
+    });
+    await progress.flush();
+    return toJsonText(result);
   },
 );
 
@@ -114,12 +220,35 @@ server.registerTool(
       minSdk: z.number().int().optional(),
     }),
   },
-  async ({ apiNames, minSdk }) => {
+  async ({ apiNames, minSdk }, ctx) => {
+    const progress = createProgressReporter(
+      ctx.mcpReq._meta?.progressToken,
+      (notification) => ctx.mcpReq.notify(notification),
+    );
+    await progress.report({
+      progress: 0,
+      total: apiNames.length,
+      message: `Preparing to cache ${apiNames.length} Android APIs`,
+    });
     const results = [];
-    for (const apiName of apiNames) {
+    for (const [index, apiName] of apiNames.entries()) {
       const result = await queryAndroidApi(runtime, {
         apiName,
         minSdk,
+        signal: ctx.mcpReq.signal,
+        onProgress: (update) => {
+          const fraction =
+            update.totalTags === 0
+              ? 0
+              : update.completedTags / update.totalTags;
+          return progress.report({
+            progress: index + fraction,
+            total: apiNames.length,
+            message: update.currentTag
+              ? `${apiName}: checked ${update.currentTag} (${update.completedTags}/${update.totalTags})`
+              : `${apiName}: checking ${update.totalTags} Android tags`,
+          });
+        },
       });
       results.push({
         apiName,
@@ -127,7 +256,13 @@ server.registerTool(
         foundTags: result.summary.foundTags,
         rangeCount: result.summary.rangeCount,
       });
+      await progress.report({
+        progress: index + 1,
+        total: apiNames.length,
+        message: `${apiName}: cache ready`,
+      });
     }
+    await progress.flush();
     return toJsonText({
       cacheDir: getDefaultCacheDir(),
       results,

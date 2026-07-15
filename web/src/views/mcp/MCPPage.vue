@@ -66,7 +66,7 @@ const activeTool = computed(
 );
 
 const browserRuntime: AndroidApiQueryRuntime = {
-  fetchText: persistentFetch,
+  fetchText: (url) => persistentFetch(url),
   loadAndroidVersionList: async () => androidVersionList,
 };
 

@@ -44,10 +44,6 @@ export const getGoogleSourceUrl = (filePath: string): string => {
   return `${sourceBaseurl}platform/frameworks/base/+/refs/tags/${tag}${sourcePath}`;
 };
 
-export const getGoogleContentUrl = (filePath: string): string => {
-  return `${getGoogleSourceUrl(filePath)}?format=TEXT`;
-};
-
 export const getMirrorContentUrl = (filePath: string): string => {
   for (const [tag, baseUrl] of manualTagMirrors) {
     const tagPrefix = `${tag}/`;

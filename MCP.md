@@ -2,6 +2,8 @@
 
 [`@android-cs/api-diff-mcp`](https://www.npmjs.com/package/@android-cs/api-diff-mcp) lets an MCP-compatible AI client inspect Android framework Java/AIDL APIs across platform versions and generate Java code for hidden APIs. It runs locally over stdio and requires Node.js 24 or newer.
 
+The server combines Android tag metadata from Google Source and GitHub, then downloads Java/AIDL source files only from GitHub. Long-running query, code-generation, and cache-warming calls report incremental progress when the MCP client supplies a progress token.
+
 ## Connect an MCP client
 
 Codex users can add the published server from the command line:

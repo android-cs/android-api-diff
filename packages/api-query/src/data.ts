@@ -5,6 +5,11 @@ import {
 } from './constants.ts';
 import type { AndroidApiQueryRuntime, AndroidVersionItem } from './types.ts';
 
+const gitHubTagsUrl =
+  'https://github.com/aosp-mirror/platform_frameworks_base.git/info/refs?service=git-upload-pack';
+const googleSourceTagsUrl =
+  'https://android.googlesource.com/platform/frameworks/base/+refs/tags/?format=JSON';
+const gitHubTagRefReg = /refs\/tags\/(android-\d+\.\d+\.\d+_r\d+)/g;
 const tagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
 const xssiPrefix = `)]}'\n`;
 
@@ -15,45 +20,54 @@ interface GoogleSourceTagsResponse {
   };
 }
 
-interface GitHubTagRef {
-  ref: string;
-}
-
 const fetchCachedText = async (
   runtime: AndroidApiQueryRuntime,
   key: string,
   url: string,
+  signal?: AbortSignal,
 ): Promise<string> => {
   const cached = await runtime.textCache?.get(key);
   if (cached !== undefined) return cached;
-  const value = await runtime.fetchText(url);
+  const value = await runtime.fetchText(url, signal);
   await runtime.textCache?.set(key, value);
   return value;
 };
 
-const getSourceProvider = (runtime: AndroidApiQueryRuntime) => {
-  return runtime.sourceProvider ?? 'github';
+const parseGitHubTags = (text: string): string[] => {
+  const tags = Array.from(
+    new Set(Array.from(text.matchAll(gitHubTagRefReg), (match) => match[1]!)),
+  );
+  if (tags.length === 0) {
+    throw new Error('GitHub returned an invalid Android tag list');
+  }
+  return tags;
 };
 
-const parseGitHubTags = (text: string): string[] | undefined => {
-  const value = JSON.parse(text) as unknown;
-  if (!Array.isArray(value)) return;
-  return value
-    .map((item) => (item as Partial<GitHubTagRef>).ref)
-    .filter((ref): ref is string => typeof ref === 'string')
-    .map((ref) => ref.substring('refs/tags/'.length))
-    .filter((tag) => tagReg.test(tag));
+const parseGoogleSourceTags = (text: string): string[] => {
+  if (!text.startsWith(xssiPrefix)) {
+    throw new Error('Google Source returned an invalid Android tag list');
+  }
+  const value = JSON.parse(
+    text.substring(xssiPrefix.length),
+  ) as GoogleSourceTagsResponse;
+  const tags = Object.keys(value).filter((tag) => tagReg.test(tag));
+  if (tags.length === 0) {
+    throw new Error('Google Source returned an invalid Android tag list');
+  }
+  return tags;
 };
 
 export const loadAidlJavaFiles = async (
   runtime: AndroidApiQueryRuntime,
+  signal?: AbortSignal,
 ): Promise<string[]> => {
-  const runtimeFiles = await runtime.loadAidlJavaFiles?.();
+  const runtimeFiles = await runtime.loadAidlJavaFiles?.(signal);
   if (runtimeFiles) return runtimeFiles;
   const text = await fetchCachedText(
     runtime,
     'file-list:aidl-java-files:v1',
     aidlJavaFileListUrl,
+    signal,
   );
   const files = text.split('\n').filter(Boolean).sort();
   const normalFiles: string[] = [];
@@ -70,33 +84,33 @@ export const loadAidlJavaFiles = async (
 
 export const loadAndroidVersionList = async (
   runtime: AndroidApiQueryRuntime,
+  signal?: AbortSignal,
 ): Promise<AndroidVersionItem[]> => {
-  const runtimeVersionList = await runtime.loadAndroidVersionList?.();
+  const runtimeVersionList = await runtime.loadAndroidVersionList?.(signal);
   if (runtimeVersionList) return runtimeVersionList;
-  const googleTagsText = await fetchCachedText(
-    runtime,
-    'tag-list:googlesource:frameworks-base:v1',
-    'https://android.googlesource.com/platform/frameworks/base/+refs/tags/?format=JSON',
+  const [googleSourceTagsText, githubTagsText] = await Promise.all([
+    fetchCachedText(
+      runtime,
+      'tag-list:googlesource:frameworks-base:v1',
+      googleSourceTagsUrl,
+      signal,
+    ),
+    fetchCachedText(
+      runtime,
+      'tag-list:github:aosp-mirror-frameworks-base:git-upload-pack:v1',
+      gitHubTagsUrl,
+      signal,
+    ),
+  ]);
+  const googleSourceTags = parseGoogleSourceTags(googleSourceTagsText);
+  const githubTags = parseGitHubTags(githubTagsText);
+  const customAvailableTags = manualTagMirrors.map(([tag]) => tag);
+  const availableTags = Array.from(
+    new Set([...githubTags, ...customAvailableTags]),
   );
-  const googleTags = Object.keys(
-    JSON.parse(
-      googleTagsText.substring(xssiPrefix.length),
-    ) as GoogleSourceTagsResponse,
-  ).filter((v) => tagReg.test(v));
-
-  const availableTags =
-    getSourceProvider(runtime) !== 'github'
-      ? googleTags
-      : await (async () => {
-          const githubTagsText = await fetchCachedText(
-            runtime,
-            'tag-list:github:aosp-mirror-frameworks-base:v1',
-            'https://api.github.com/repos/aosp-mirror/platform_frameworks_base/git/refs/tags',
-          );
-          const githubTags = parseGitHubTags(githubTagsText) ?? googleTags;
-          const customAvailableTags = manualTagMirrors.map(([tag]) => tag);
-          return Array.from(new Set([...githubTags, ...customAvailableTags]));
-        })();
+  const knownTags = Array.from(
+    new Set([...googleSourceTags, ...githubTags, ...customAvailableTags]),
+  );
   const minApiVersion = androidVersionInfos[0].apiVersion;
   const androidVersionInfoMap = new Map<string, AndroidVersionItem>(
     androidVersionInfos.map((info) => [
@@ -106,7 +120,7 @@ export const loadAndroidVersionList = async (
   );
 
   const versionTags: Record<string, string[]> = {};
-  googleTags.forEach((v) => {
+  knownTags.forEach((v) => {
     const version = v
       .split('.')
       .slice(0, 2)
@@ -132,8 +146,8 @@ export const loadAndroidVersionList = async (
         const rb = Number(b.split('_r')[1]);
         return ra - rb;
       });
-      const futureTags = alltag.filter((v) => !availableTags.includes(v));
-      const tags = alltag.filter((v) => availableTags.includes(v));
+      const tags = alltag.filter((tag) => availableTags.includes(tag));
+      const futureTags = alltag.filter((tag) => !availableTags.includes(tag));
       return {
         version,
         alias: info?.alias ?? '',

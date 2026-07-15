@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import {
   QUERY_CACHE_VERSION,
   STRUCT_CACHE_VERSION,
@@ -24,22 +25,30 @@ const getVersionDirName = (version: string): string => {
 const NETWORK_RETRY_COUNT = 3;
 const NETWORK_RETRY_BASE_DELAY_MS = 300;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const fetchTextOnce = async (url: string): Promise<string> => {
-  const response = await fetch(url);
+const fetchTextOnce = async (
+  url: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const response = await fetch(url, { signal });
   return response.text();
 };
 
-const fetchTextWithRetry = async (url: string): Promise<string> => {
+const fetchTextWithRetry = async (
+  url: string,
+  signal?: AbortSignal,
+): Promise<string> => {
   let lastError: unknown;
   for (let attempt = 0; attempt <= NETWORK_RETRY_COUNT; attempt++) {
+    signal?.throwIfAborted();
     try {
-      return await fetchTextOnce(url);
+      return await fetchTextOnce(url, signal);
     } catch (error) {
       lastError = error;
+      signal?.throwIfAborted();
       if (attempt === NETWORK_RETRY_COUNT) break;
-      await sleep(NETWORK_RETRY_BASE_DELAY_MS * 2 ** attempt);
+      await sleep(NETWORK_RETRY_BASE_DELAY_MS * 2 ** attempt, undefined, {
+        signal,
+      });
     }
   }
   throw lastError instanceof Error
@@ -148,7 +157,6 @@ export const createNodeRuntime = (
 ): AndroidApiQueryRuntime => {
   return {
     fetchText: fetchTextWithRetry,
-    sourceProvider: 'github-googlesource',
     textCache: new FileCache(cacheDir, 'text', textCodec),
     structCache: new FileCache(
       cacheDir,

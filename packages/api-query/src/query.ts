@@ -11,16 +11,15 @@ import type {
   AndroidApiQueryResult,
   AndroidApiQueryRuntime,
   AndroidApiResolvedType,
-  AndroidApiSourceProvider,
   AndroidApiStructCacheEntry,
   AndroidApiVersionRangeResult,
   AndroidVersionItem,
   QueryAndroidApiOptions,
 } from './types.ts';
-import { getGoogleContentUrl, getMirrorContentUrl } from './url.ts';
+import { getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v8';
-export const QUERY_CACHE_VERSION = 'query:v18';
+export const STRUCT_CACHE_VERSION = 'struct:v9';
+export const QUERY_CACHE_VERSION = 'query:v19';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -41,130 +40,30 @@ const normalizeConcurrency = (value: number | undefined): number => {
   return Math.floor(value);
 };
 
-type SingleAndroidApiSourceProvider = Exclude<
-  AndroidApiSourceProvider,
-  'github-googlesource'
->;
-
-const getSourceProvider = (
+const fetchTaggedFileText = async (
   runtime: AndroidApiQueryRuntime,
-): AndroidApiSourceProvider => {
-  return runtime.sourceProvider ?? 'github';
-};
-
-const decodeGoogleSourceText = (text: string): string => {
-  const binary = atob(text.replace(/\s/g, ''));
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-};
-
-const getGoogleSourceErrorMessage = (text: string): string | undefined => {
-  const firstLine = text.trimStart().split(/\r?\n/, 1)[0] ?? '';
-  if (!/^[A-Z_]+:/.test(firstLine)) return;
-  if (firstLine.startsWith('NOT_FOUND:') || firstLine.startsWith('404:'))
-    return;
-  return firstLine;
-};
-
-const decodeGoogleSourceContent = (text: string, url: string): string => {
-  const errorMessage = getGoogleSourceErrorMessage(text);
-  if (errorMessage) {
-    throw new Error(
-      `Google source returned an error for ${url}: ${errorMessage}`,
-    );
-  }
-  try {
-    return decodeGoogleSourceText(text);
-  } catch (error) {
-    throw new Error(`Google source returned non-base64 content for ${url}`, {
-      cause: error,
-    });
-  }
-};
-
-const getTaggedFileTextFromProvider = async (
-  runtime: AndroidApiQueryRuntime,
-  sourceProvider: SingleAndroidApiSourceProvider,
   taggedFilePath: string,
+  signal?: AbortSignal,
 ): Promise<{ text: string; sourceFileNotFound: boolean }> => {
-  const url =
-    sourceProvider === 'googlesource'
-      ? getGoogleContentUrl(taggedFilePath)
-      : getMirrorContentUrl(taggedFilePath);
-  const rawText = await runtime.fetchText(url);
-  if (sourceProvider === 'googlesource') {
-    const sourceFileNotFound =
-      rawText.startsWith('NOT_FOUND:') || rawText.startsWith('404:');
-    return {
-      text: sourceFileNotFound
-        ? rawText
-        : decodeGoogleSourceContent(rawText, url),
-      sourceFileNotFound,
-    };
-  }
+  const url = getMirrorContentUrl(taggedFilePath);
+  const rawText = await runtime.fetchText(url, signal);
   return {
     text: rawText,
     sourceFileNotFound: rawText.startsWith('404:'),
   };
 };
 
-const fetchTaggedFileText = async (
-  runtime: AndroidApiQueryRuntime,
-  sourceProvider: AndroidApiSourceProvider,
-  taggedFilePath: string,
-): Promise<{ text: string; sourceFileNotFound: boolean }> => {
-  if (sourceProvider !== 'github-googlesource') {
-    return getTaggedFileTextFromProvider(
-      runtime,
-      sourceProvider,
-      taggedFilePath,
-    );
-  }
-
-  const results = await Promise.allSettled(
-    (['github', 'googlesource'] as const).map((provider) =>
-      getTaggedFileTextFromProvider(runtime, provider, taggedFilePath),
-    ),
-  );
-  for (const result of results) {
-    if (result.status === 'fulfilled' && !result.value.sourceFileNotFound) {
-      return result.value;
-    }
-  }
-
-  const errors = results.flatMap((result) =>
-    result.status === 'rejected' ? [result.reason] : [],
-  );
-  if (errors.length === 1) throw errors[0];
-  if (errors.length > 1) {
-    throw new AggregateError(
-      errors,
-      `GitHub and Google sources failed for ${taggedFilePath}`,
-    );
-  }
-  for (const result of results) {
-    if (result.status === 'fulfilled') return result.value;
-  }
-  throw new Error(
-    `GitHub and Google sources returned no result for ${taggedFilePath}`,
-  );
-};
-
 const getTaggedFileText = async (
   runtime: AndroidApiQueryRuntime,
-  sourceProvider: AndroidApiSourceProvider,
   taggedFilePath: string,
+  signal?: AbortSignal,
 ): Promise<{ text: string; sourceFileNotFound: boolean }> => {
   const cached = await runtime.textCache?.get(taggedFilePath);
   if (cached !== undefined) {
     return { text: cached, sourceFileNotFound: false };
   }
 
-  const result = await fetchTaggedFileText(
-    runtime,
-    sourceProvider,
-    taggedFilePath,
-  );
+  const result = await fetchTaggedFileText(runtime, taggedFilePath, signal);
   if (!result.sourceFileNotFound) {
     await runtime.textCache?.set(taggedFilePath, result.text);
   }
@@ -173,17 +72,17 @@ const getTaggedFileText = async (
 
 const getStructsByTaggedFile = async (
   runtime: AndroidApiQueryRuntime,
-  sourceProvider: AndroidApiSourceProvider,
   taggedFilePath: string,
+  signal?: AbortSignal,
 ): Promise<AndroidApiStructCacheEntry> => {
-  const structKey = `${STRUCT_CACHE_VERSION}:${sourceProvider}:${taggedFilePath}`;
+  const structKey = `${STRUCT_CACHE_VERSION}:${taggedFilePath}`;
   const cached = await runtime.structCache?.get(structKey);
   if (cached) return cached;
 
   const { text, sourceFileNotFound } = await getTaggedFileText(
     runtime,
-    sourceProvider,
     taggedFilePath,
+    signal,
   );
   let list: ClassStruct[] = [];
   if (!sourceFileNotFound && taggedFilePath.endsWith('.aidl')) {
@@ -393,13 +292,9 @@ const compactVersionResults = (
   return addCheckedTagPositions(ranges, versions);
 };
 
-const getQueryCacheKey = (
-  options: QueryAndroidApiOptions,
-  sourceProvider: AndroidApiSourceProvider,
-): string => {
+const getQueryCacheKey = (options: QueryAndroidApiOptions): string => {
   return [
     QUERY_CACHE_VERSION,
-    sourceProvider,
     options.apiName.trim(),
     options.minSdk ?? '',
   ].join(':');
@@ -409,16 +304,18 @@ export const queryAndroidApi = async (
   runtime: AndroidApiQueryRuntime,
   options: QueryAndroidApiOptions,
 ): Promise<AndroidApiQueryResult> => {
+  options.signal?.throwIfAborted();
   const normalizedApiName = options.apiName.trim();
-  const sourceProvider = getSourceProvider(runtime);
-  const cacheKey = getQueryCacheKey(
-    { ...options, apiName: normalizedApiName },
-    sourceProvider,
-  );
+  const cacheKey = getQueryCacheKey({
+    ...options,
+    apiName: normalizedApiName,
+  });
   const cached = await runtime.queryCache?.get(cacheKey);
+  options.signal?.throwIfAborted();
   if (cached) return cached;
 
-  const aidlJavaFiles = await loadAidlJavaFiles(runtime);
+  const aidlJavaFiles = await loadAidlJavaFiles(runtime, options.signal);
+  options.signal?.throwIfAborted();
   const search = searchFilePathByRefName(normalizedApiName, aidlJavaFiles);
   if (!search) {
     const result: AndroidApiQueryResult = {
@@ -438,87 +335,102 @@ export const queryAndroidApi = async (
 
   const resolution = toAndroidApiResolution(search)!;
   const androidVersionList = getSelectedTags(
-    await loadAndroidVersionList(runtime),
+    await loadAndroidVersionList(runtime, options.signal),
     options,
   );
+  options.signal?.throwIfAborted();
+  const taggedVersions = androidVersionList.flatMap((version) =>
+    version.tags.map((tag) => ({ tag, version })),
+  );
+  let completedTags = 0;
+  await options.onProgress?.({
+    completedTags,
+    totalTags: taggedVersions.length,
+  });
   const limit = pLimit(normalizeConcurrency(options.concurrency));
   const versions = (
     await Promise.all(
-      androidVersionList.flatMap((version) =>
-        version.tags.map((tag) =>
-          limit(async (): Promise<InternalAndroidApiVersionResult> => {
-            const taggedFilePath = `${tag}/${search.filePath}`;
-            const { structs, sourceFileNotFound } =
-              await getStructsByTaggedFile(
-                runtime,
-                sourceProvider,
-                taggedFilePath,
-              );
-            let targetFound = false;
-            let members: AndroidApiMemberResult[] | undefined;
-            let typePath: AndroidApiResolvedType[] | undefined;
-            let signature = '';
+      taggedVersions.map(({ tag, version }) =>
+        limit(async (): Promise<InternalAndroidApiVersionResult> => {
+          options.signal?.throwIfAborted();
+          const taggedFilePath = `${tag}/${search.filePath}`;
+          const { structs, sourceFileNotFound } = await getStructsByTaggedFile(
+            runtime,
+            taggedFilePath,
+            options.signal,
+          );
+          options.signal?.throwIfAborted();
+          let targetFound = false;
+          let members: AndroidApiMemberResult[] | undefined;
+          let typePath: AndroidApiResolvedType[] | undefined;
+          let signature = '';
 
-            if (!sourceFileNotFound) {
-              if (search.targetKind === 'file') {
+          if (!sourceFileNotFound) {
+            if (search.targetKind === 'file') {
+              targetFound = true;
+            } else if (search.targetKind === 'class') {
+              const foundTypePath = findStructPathByPath(
+                structs,
+                search.targetPaths,
+              );
+              if (foundTypePath) {
                 targetFound = true;
-              } else if (search.targetKind === 'class') {
-                const foundTypePath = findStructPathByPath(
-                  structs,
-                  search.targetPaths,
+                typePath = foundTypePath.map(toResolvedType);
+              }
+            } else {
+              const propName = search.targetPaths.at(-1);
+              const foundTypePath = findStructPathByPath(
+                structs,
+                search.targetPaths.slice(0, -1),
+              );
+              const foundTarget = foundTypePath?.at(-1);
+              if (foundTypePath && foundTarget && propName) {
+                typePath = foundTypePath.map(toResolvedType);
+                const matchedMembers = foundTarget.members.filter(
+                  (v) => v.name === propName,
                 );
-                if (foundTypePath) {
+                if (matchedMembers.length > 0) {
                   targetFound = true;
-                  typePath = foundTypePath.map(toResolvedType);
-                }
-              } else {
-                const propName = search.targetPaths.at(-1);
-                const foundTypePath = findStructPathByPath(
-                  structs,
-                  search.targetPaths.slice(0, -1),
-                );
-                const foundTarget = foundTypePath?.at(-1);
-                if (foundTypePath && foundTarget && propName) {
-                  typePath = foundTypePath.map(toResolvedType);
-                  const matchedMembers = foundTarget.members.filter(
-                    (v) => v.name === propName,
-                  );
-                  if (matchedMembers.length > 0) {
-                    targetFound = true;
-                    members = [...matchedMembers]
-                      .sort(
-                        (a, b) =>
-                          (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
-                      )
-                      .map(toResultMember);
-                    signature = members.map((v) => v.type).join('\n');
-                  }
+                  members = [...matchedMembers]
+                    .sort(
+                      (a, b) =>
+                        (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
+                    )
+                    .map(toResultMember);
+                  signature = members.map((v) => v.type).join('\n');
                 }
               }
             }
+          }
 
-            const isApiFound =
-              search.targetKind === 'file'
-                ? !sourceFileNotFound
-                : targetFound || !!members?.length;
-            const missingReason = isApiFound
-              ? undefined
-              : sourceFileNotFound
-                ? 'source-file-not-found'
-                : 'api-not-found';
+          const isApiFound =
+            search.targetKind === 'file'
+              ? !sourceFileNotFound
+              : targetFound || !!members?.length;
+          const missingReason = isApiFound
+            ? undefined
+            : sourceFileNotFound
+              ? 'source-file-not-found'
+              : 'api-not-found';
 
-            return {
-              version: version.version,
-              alias: version.alias,
-              apiVersion: version.apiVersion,
-              tag,
-              ...(missingReason ? { missingReason } : {}),
-              ...(signature ? { signature } : {}),
-              members,
-              ...(typePath ? { typePath } : {}),
-            };
-          }),
-        ),
+          const result: InternalAndroidApiVersionResult = {
+            version: version.version,
+            alias: version.alias,
+            apiVersion: version.apiVersion,
+            tag,
+            ...(missingReason ? { missingReason } : {}),
+            ...(signature ? { signature } : {}),
+            members,
+            ...(typePath ? { typePath } : {}),
+          };
+          completedTags++;
+          await options.onProgress?.({
+            completedTags,
+            totalTags: taggedVersions.length,
+            currentTag: tag,
+          });
+          return result;
+        }),
       ),
     )
   ).sort(compareVersionResults);

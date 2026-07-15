@@ -77,7 +77,7 @@ export const estimateDesc = computed(() => {
 export const aidlJavaFiles = shallowRef<string[]>([]);
 setTimeout(async () => {
   aidlJavaFiles.value = await loadAidlJavaFiles({
-    fetchText: persistentFetch,
+    fetchText: (url) => persistentFetch(url),
   });
 });
 

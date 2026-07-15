@@ -61,16 +61,18 @@ export interface CacheStore<T> {
   set(key: string, value: T): Promise<void>;
 }
 
+/** @deprecated Source-file downloads always use GitHub. */
 export type AndroidApiSourceProvider =
   | 'github'
   | 'googlesource'
   | 'github-googlesource';
 
 export interface AndroidApiQueryRuntime {
-  fetchText(url: string): Promise<string>;
+  fetchText(url: string, signal?: AbortSignal): Promise<string>;
+  /** @deprecated Ignored. Source-file downloads always use GitHub. */
   sourceProvider?: AndroidApiSourceProvider;
-  loadAidlJavaFiles?(): Promise<string[]>;
-  loadAndroidVersionList?(): Promise<AndroidVersionItem[]>;
+  loadAidlJavaFiles?(signal?: AbortSignal): Promise<string[]>;
+  loadAndroidVersionList?(signal?: AbortSignal): Promise<AndroidVersionItem[]>;
   textCache?: CacheStore<string>;
   structCache?: CacheStore<AndroidApiStructCacheEntry>;
   queryCache?: CacheStore<AndroidApiQueryResult>;
@@ -80,6 +82,14 @@ export interface QueryAndroidApiOptions {
   apiName: string;
   minSdk?: number;
   concurrency?: number;
+  signal?: AbortSignal;
+  onProgress?(progress: AndroidApiQueryProgress): void | Promise<void>;
+}
+
+export interface AndroidApiQueryProgress {
+  completedTags: number;
+  totalTags: number;
+  currentTag?: string;
 }
 
 export type AndroidApiMemberResult =

@@ -10,7 +10,6 @@ const version13Tags = [
 ];
 const version14Tags = ['android-14.0.0_r2', 'android-14.0.0_r1'];
 const runtime: AndroidApiQueryRuntime = {
-  sourceProvider: 'github',
   loadAidlJavaFiles: async () => ['core/java/android/app/IExample.java'],
   loadAndroidVersionList: async () => [
     {
@@ -40,13 +39,28 @@ public interface IExample {
   },
 };
 
+const progressUpdates: Array<{
+  completedTags: number;
+  totalTags: number;
+}> = [];
 const result = await queryAndroidApi(runtime, {
   apiName: 'IExample.ping',
   minSdk: 33,
   concurrency: 1,
+  onProgress: ({ completedTags, totalTags }) => {
+    progressUpdates.push({ completedTags, totalTags });
+  },
 });
 
 assert.equal(result.summary.checkedTags, 5);
+assert.deepEqual(
+  progressUpdates.map(({ completedTags }) => completedTags),
+  [0, 1, 2, 3, 4, 5],
+);
+assert.deepEqual(
+  new Set(progressUpdates.map(({ totalTags }) => totalTags)),
+  new Set([5]),
+);
 assert.equal(result.ranges.length, 2);
 assert.deepEqual(
   result.ranges.map((range) => ({
@@ -88,9 +102,8 @@ public interface IExample {
   int ping();
 }
 `;
-  const conflictingGoogleSource = source.replace('int ping()', 'void ping()');
-  const dualSourceRuntime: AndroidApiQueryRuntime = {
-    sourceProvider: 'github-googlesource',
+  const githubRuntime: AndroidApiQueryRuntime = {
+    sourceProvider: 'googlesource',
     loadAidlJavaFiles: async () => ['core/java/android/app/IExample.java'],
     loadAndroidVersionList: async () => [
       {
@@ -107,70 +120,74 @@ public interface IExample {
       maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
       await Promise.resolve();
       try {
-        if (url.includes('raw.githubusercontent.com')) {
-          return url.includes('android-13.0.0_r2/') ? '404: Not Found' : source;
-        }
-        if (url.includes('android.googlesource.com')) {
-          if (url.includes('android-13.0.0_r1/')) {
-            return 'RESOURCE_EXHAUSTED: Resource has been exhausted';
-          }
-          return btoa(
-            url.includes('android-13.0.0_r3/')
-              ? conflictingGoogleSource
-              : source,
-          );
-        }
-        throw new Error(`Unexpected URL: ${url}`);
+        assert.match(url, /^https:\/\/raw\.githubusercontent\.com\//);
+        return url.includes('android-13.0.0_r2/') ? '404: Not Found' : source;
       } finally {
         activeRequests--;
       }
     },
   };
 
-  const dualSourceResult = await queryAndroidApi(dualSourceRuntime, {
+  const githubResult = await queryAndroidApi(githubRuntime, {
     apiName: 'IExample.ping',
     minSdk: 33,
     concurrency: 1,
   });
 
-  assert.equal(maxActiveRequests, 2);
+  assert.equal(maxActiveRequests, 1);
+  assert.equal(fetchedUrls.length, 3);
+  assert.equal(githubResult.summary.checkedTags, 3);
+  assert.equal(githubResult.summary.foundTags, 2);
   assert.equal(
-    fetchedUrls.filter((url) => url.includes('raw.githubusercontent.com'))
-      .length,
-    3,
+    githubResult.ranges.find((range) => range.missingReason)?.missingReason,
+    'source-file-not-found',
   );
-  assert.equal(
-    fetchedUrls.filter((url) => url.includes('android.googlesource.com'))
-      .length,
-    3,
-  );
-  assert.equal(dualSourceResult.summary.checkedTags, 3);
-  assert.equal(dualSourceResult.summary.foundTags, 3);
-  assert.equal(dualSourceResult.ranges.length, 1);
-  assert.equal(dualSourceResult.ranges[0]?.members?.[0]?.type, '() -> int');
 }
 
 {
   const fetchedUrls: string[] = [];
   const versionList = await loadAndroidVersionList({
-    sourceProvider: 'github-googlesource',
     fetchText: async (url) => {
       fetchedUrls.push(url);
-      return `)]}'\n${JSON.stringify({
-        'android-13.0.0_r1': { peeled: '', value: '' },
-      })}`;
+      if (url.includes('android.googlesource.com')) {
+        return `)]}'\n${JSON.stringify({
+          'android-13.0.0_r1': { peeled: '', value: '' },
+          'android-13.0.0_r2': { peeled: '', value: '' },
+        })}`;
+      }
+      return [
+        'refs/tags/android-13.0.0_r1',
+        'refs/tags/android-13.0.0_r1^{}',
+        'refs/tags/android-13.0.0_r3',
+        'refs/tags/not-an-android-release',
+      ].join('\n');
     },
   });
 
   assert.deepEqual(fetchedUrls, [
     'https://android.googlesource.com/platform/frameworks/base/+refs/tags/?format=JSON',
+    'https://github.com/aosp-mirror/platform_frameworks_base.git/info/refs?service=git-upload-pack',
   ]);
   assert.deepEqual(versionList, [
     {
       version: '13',
       alias: 'TIRAMISU',
       apiVersion: 33,
-      tags: ['android-13.0.0_r1'],
+      tags: ['android-13.0.0_r1', 'android-13.0.0_r3'],
+      futureTags: ['android-13.0.0_r2'],
+    },
+    {
+      version: '16',
+      alias: 'BAKLAVA',
+      apiVersion: 36,
+      tags: ['android-16.0.0_r4'],
+      futureTags: [],
+    },
+    {
+      version: '17',
+      alias: 'CINNAMON_BUN',
+      apiVersion: 37,
+      tags: ['android-17.0.0_r1'],
       futureTags: [],
     },
   ]);
@@ -206,13 +223,12 @@ public interface IExample {
     textCache,
   } satisfies Partial<AndroidApiQueryRuntime>;
 
-  const googleResult = await queryAndroidApi(
+  const firstResult = await queryAndroidApi(
     {
       ...runtimeOverrides,
-      sourceProvider: 'googlesource',
       fetchText: async (url) => {
         fetchedUrls.push(url);
-        return btoa(source);
+        return source;
       },
     },
     {
@@ -221,10 +237,9 @@ public interface IExample {
       concurrency: 1,
     },
   );
-  const githubResult = await queryAndroidApi(
+  const cachedResult = await queryAndroidApi(
     {
       ...runtimeOverrides,
-      sourceProvider: 'github',
       fetchText: async (url) => {
         throw new Error(`Unexpected cache miss: ${url}`);
       },
@@ -237,11 +252,69 @@ public interface IExample {
   );
 
   const cacheKey = 'android-13.0.0_r1/core/java/android/app/IExample.java';
-  assert.equal(googleResult.summary.foundTags, 1);
-  assert.equal(githubResult.summary.foundTags, 1);
+  assert.equal(firstResult.summary.foundTags, 1);
+  assert.equal(cachedResult.summary.foundTags, 1);
   assert.equal(fetchedUrls.length, 1);
   assert.deepEqual([...cachedTexts.keys()], [cacheKey]);
   assert.equal(cachedTexts.get(cacheKey), source);
+}
+
+{
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    queryAndroidApi(runtime, {
+      apiName: 'IExample.ping',
+      minSdk: 33,
+      signal: controller.signal,
+    }),
+    (error: unknown) =>
+      error instanceof DOMException && error.name === 'AbortError',
+  );
+}
+
+{
+  const controller = new AbortController();
+  let markFetchStarted!: () => void;
+  const fetchStarted = new Promise<void>((resolve) => {
+    markFetchStarted = resolve;
+  });
+  const query = queryAndroidApi(
+    {
+      loadAidlJavaFiles: async () => ['core/java/android/app/IExample.java'],
+      loadAndroidVersionList: async () => [
+        {
+          version: '13',
+          alias: 'TIRAMISU',
+          apiVersion: 33,
+          tags: ['android-13.0.0_r1'],
+          futureTags: [],
+        },
+      ],
+      fetchText: async (_url, signal) => {
+        assert.equal(signal, controller.signal);
+        markFetchStarted();
+        return new Promise<string>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      },
+    },
+    {
+      apiName: 'IExample.ping',
+      minSdk: 33,
+      concurrency: 1,
+      signal: controller.signal,
+    },
+  );
+  await fetchStarted;
+  controller.abort();
+  await assert.rejects(
+    query,
+    (error: unknown) =>
+      error instanceof DOMException && error.name === 'AbortError',
+  );
 }
 
 console.log('query tests passed');
