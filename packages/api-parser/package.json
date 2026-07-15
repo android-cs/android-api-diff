@@ -2,6 +2,11 @@
   "name": "@android-cs/api-parser",
   "version": "0.0.2",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/android-cs/android-api-diff",
+    "directory": "packages/api-parser"
+  },
   "engines": {
     "node": ">=24"
   },
