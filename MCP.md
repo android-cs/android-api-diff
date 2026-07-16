@@ -1,6 +1,6 @@
 # android-api-diff MCP
 
-[`@android-cs/api-diff-mcp`](https://www.npmjs.com/package/@android-cs/api-diff-mcp) lets an MCP-compatible AI client inspect Android framework Java/AIDL APIs across platform versions and generate Java code for hidden APIs. It runs locally over stdio and requires Node.js 24 or newer.
+[`@android-cs/api-diff-mcp`](https://www.npmjs.com/package/@android-cs/api-diff-mcp) lets an MCP-compatible AI client inspect Android framework Java/AIDL APIs across platform versions and generate Java code for hidden APIs. It runs locally over stdio and requires Node.js 24.15 or newer.
 
 The server combines Android tag metadata from Google Source and GitHub, then downloads Java/AIDL source files only from GitHub. Long-running query, code-generation, and cache-warming calls report incremental progress when the MCP client supplies a progress token.
 
@@ -53,4 +53,4 @@ pnpm install
 pnpm -F @android-cs/api-diff-mcp start
 ```
 
-Set `ANDROID_API_DIFF_CACHE_DIR` to override the Node.js file cache directory.
+Set `ANDROID_API_DIFF_CACHE_DIR` to override the directory containing the Node.js content-addressed SQLite cache. Cache values are stored as Brotli-compressed BLOBs; custom cache roots are never recursively migrated or deleted automatically.

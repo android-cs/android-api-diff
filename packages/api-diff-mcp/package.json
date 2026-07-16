@@ -8,7 +8,7 @@
     "directory": "packages/api-diff-mcp"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=24.15"
   },
   "publishConfig": {
     "access": "public",
@@ -27,6 +27,7 @@
     "build": "tsdown",
     "prepublishOnly": "tsdown",
     "start": "node src/index.ts",
+    "test:cache": "node --test src/nodeRuntime.test.ts",
     "type-check": "tsc"
   },
   "dependencies": {

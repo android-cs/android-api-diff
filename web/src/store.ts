@@ -9,10 +9,16 @@ import {
   searchFilePathByRefName as searchFilePathByRefNameCore,
 } from '@android-cs/api-query';
 import pLimit from 'p-limit';
-import { computed, shallowReactive, shallowRef } from 'vue';
+import { shallowReactive, shallowRef } from 'vue';
 import { emptyArray } from './utils/constants.ts';
+import { updateStorageEstimate } from './utils/storageEstimate.ts';
 import { getMirrorContentUrl } from './utils/url.ts';
 import defer * as androidApiParser from '@android-cs/api-parser';
+
+export {
+  estimateDesc,
+  updateStorageEstimate,
+} from './utils/storageEstimate.ts';
 
 // preload parser
 setTimeout(async () => androidApiParser, 3000);
@@ -60,19 +66,7 @@ export const pullStructsByUrl = async (
   return list;
 };
 
-const storageEstimate = shallowRef<StorageEstimate>();
-export const updateStorageEstimate = async () => {
-  if (navigator.storage?.estimate) {
-    storageEstimate.value = await navigator.storage.estimate();
-  }
-};
 setTimeout(updateStorageEstimate);
-export const estimateDesc = computed(() => {
-  if (!storageEstimate.value) return '';
-  const usage = storageEstimate.value.usage;
-  if (!usage) return '';
-  return `${(usage / 1024 / 1024).toFixed(2)} MB`;
-});
 
 export const aidlJavaFiles = shallowRef<string[]>([]);
 setTimeout(async () => {

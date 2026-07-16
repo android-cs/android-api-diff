@@ -1,0 +1,236 @@
+import type {
+  AndroidApiQueryResult,
+  AndroidApiStructCacheEntry,
+  CacheStore,
+} from '@android-cs/api-query';
+import { NODE_CACHE_DOMAINS, type NodeCacheDomain } from './constants.ts';
+import { hashBytes, hashString } from './hashing.ts';
+import { SqliteContentAddressedCache } from './sqliteContentCache.ts';
+
+interface BinaryCacheCodec<T> {
+  encode(value: T): Uint8Array;
+  decode(value: Uint8Array): T;
+}
+
+interface PendingWrite {
+  contentHash: string;
+  promise: Promise<void>;
+}
+
+class CacheStoreLifecycle {
+  private acceptingOperations = true;
+  private activeOperationCount = 0;
+  private closePromise?: Promise<void>;
+  private drainPromise?: Promise<void>;
+  private resolveDrain?: () => void;
+
+  startOperation(): (() => void) | undefined {
+    if (!this.acceptingOperations) return;
+
+    this.activeOperationCount += 1;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      this.activeOperationCount -= 1;
+      if (this.activeOperationCount === 0) {
+        this.resolveDrain?.();
+        this.resolveDrain = undefined;
+      }
+    };
+  }
+
+  close(closeCache: () => Promise<void>): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+
+    // Flip this synchronously so every store rejects operations invoked after
+    // close(), even before the first await in the drain path.
+    this.acceptingOperations = false;
+    this.closePromise = (async () => {
+      if (this.activeOperationCount > 0) {
+        this.drainPromise ??= new Promise<void>((resolve) => {
+          this.resolveDrain = resolve;
+        });
+        await this.drainPromise;
+      }
+      await closeCache();
+    })();
+    return this.closePromise;
+  }
+}
+
+class SqliteCacheStore<T> implements CacheStore<T> {
+  private readonly cache: SqliteContentAddressedCache;
+  private readonly codec: BinaryCacheCodec<T>;
+  private readonly domain: NodeCacheDomain;
+  private readonly lifecycle: CacheStoreLifecycle;
+  private readonly readFlights = new Map<string, Promise<T | undefined>>();
+  private readonly writeFlights = new Map<string, PendingWrite>();
+
+  constructor(
+    cache: SqliteContentAddressedCache,
+    domain: NodeCacheDomain,
+    codec: BinaryCacheCodec<T>,
+    lifecycle: CacheStoreLifecycle,
+  ) {
+    this.cache = cache;
+    this.domain = domain;
+    this.codec = codec;
+    this.lifecycle = lifecycle;
+  }
+
+  async get(key: string): Promise<T | undefined> {
+    const finishOperation = this.lifecycle.startOperation();
+    if (!finishOperation) return;
+
+    try {
+      try {
+        return await this.getCachedValue(key);
+      } catch {
+        return;
+      }
+    } finally {
+      finishOperation();
+    }
+  }
+
+  private async getCachedValue(key: string): Promise<T | undefined> {
+    const keyHash = hashString(key);
+    const pendingWrite = this.writeFlights.get(keyHash);
+    if (pendingWrite) await pendingWrite.promise.catch(() => undefined);
+
+    const current = this.readFlights.get(keyHash);
+    if (current) return current;
+
+    const promise = this.getOnce(keyHash);
+    this.readFlights.set(keyHash, promise);
+    try {
+      return await promise;
+    } finally {
+      if (this.readFlights.get(keyHash) === promise) {
+        this.readFlights.delete(keyHash);
+      }
+    }
+  }
+
+  private async getOnce(keyHash: string): Promise<T | undefined> {
+    const cached = await this.cache.readRaw(this.domain, keyHash);
+    if (!cached) return;
+
+    try {
+      return this.codec.decode(cached.rawValue);
+    } catch {
+      await this.cache.invalidate(
+        this.domain,
+        keyHash,
+        cached.contentHash,
+        cached.generation,
+      );
+      return;
+    }
+  }
+
+  async set(key: string, value: T): Promise<void> {
+    const finishOperation = this.lifecycle.startOperation();
+    if (!finishOperation) return;
+
+    try {
+      try {
+        await this.setCachedValue(key, value);
+      } catch {
+        // Cache data is fully reproducible. I/O and serialization failures
+        // must not prevent the caller from completing the underlying query.
+      }
+    } finally {
+      finishOperation();
+    }
+  }
+
+  private async setCachedValue(key: string, value: T): Promise<void> {
+    const keyHash = hashString(key);
+    const rawValue = this.codec.encode(value);
+    const contentHash = hashBytes(rawValue);
+    const current = this.writeFlights.get(keyHash);
+    if (current?.contentHash === contentHash) return current.promise;
+
+    const previous = current?.promise.catch(() => undefined);
+    const promise = (async () => {
+      if (previous) await previous;
+      await this.cache.writeRaw(this.domain, keyHash, contentHash, rawValue);
+    })();
+    const pending = { contentHash, promise };
+    this.writeFlights.set(keyHash, pending);
+
+    try {
+      await promise;
+    } finally {
+      if (this.writeFlights.get(keyHash) === pending) {
+        this.writeFlights.delete(keyHash);
+      }
+    }
+  }
+}
+
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
+const textEncoder = new TextEncoder();
+
+const textCodec: BinaryCacheCodec<string> = {
+  encode: (value) => textEncoder.encode(value),
+  decode: (value) => textDecoder.decode(value),
+};
+
+const jsonCodec = <T>(): BinaryCacheCodec<T> => ({
+  encode: (value) => {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError('Cache value is not JSON serializable');
+    }
+    return textEncoder.encode(serialized);
+  },
+  decode: (value) => JSON.parse(textDecoder.decode(value)) as T,
+});
+
+export interface NodeCacheStores {
+  close(): Promise<void>;
+  databasePath: string;
+  queryCache: CacheStore<AndroidApiQueryResult>;
+  structCache: CacheStore<AndroidApiStructCacheEntry>;
+  textCache: CacheStore<string>;
+}
+
+interface NodeCacheStoreOptions {
+  removeLegacyDirectories?: boolean;
+}
+
+export const createNodeCacheStores = (
+  cacheDir: string,
+  options: NodeCacheStoreOptions = {},
+): NodeCacheStores => {
+  const cache = new SqliteContentAddressedCache(
+    cacheDir,
+    options.removeLegacyDirectories === true,
+  );
+  const lifecycle = new CacheStoreLifecycle();
+  return {
+    close: () => lifecycle.close(() => cache.close()),
+    databasePath: cache.databasePath,
+    queryCache: new SqliteCacheStore(
+      cache,
+      NODE_CACHE_DOMAINS.query,
+      jsonCodec<AndroidApiQueryResult>(),
+      lifecycle,
+    ),
+    structCache: new SqliteCacheStore(
+      cache,
+      NODE_CACHE_DOMAINS.struct,
+      jsonCodec<AndroidApiStructCacheEntry>(),
+      lifecycle,
+    ),
+    textCache: new SqliteCacheStore(
+      cache,
+      NODE_CACHE_DOMAINS.text,
+      textCodec,
+      lifecycle,
+    ),
+  };
+};

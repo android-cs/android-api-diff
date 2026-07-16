@@ -1,17 +1,35 @@
-import { updateStorageEstimate } from '@/store';
 import type { ClassStruct } from '@android-cs/api-parser';
-import lf from 'localforage';
+import {
+  readCacheValue,
+  writeCacheBytesIfAvailable,
+} from './cache/binaryCache';
+import { decodeText, encodeText, sha256String } from './cache/compression';
+import {
+  NETWORK_RETRY_BASE_DELAY_MS,
+  NETWORK_RETRY_COUNT,
+  STRUCT_DOMAIN,
+  TEXT_DOMAIN,
+} from './cache/config';
+import { resetCacheDatabases } from './cache/database';
+import {
+  broadcastCacheReset,
+  getCacheEpoch,
+  getLogicalFlight,
+  invalidateLocalFlights,
+  runSingleFlight,
+  setExternalResetHandler,
+} from './cache/flights';
+import { updateStorageEstimate } from './storageEstimate';
 
-const encoder = new TextEncoder();
-const NETWORK_RETRY_COUNT = 3;
-const NETWORK_RETRY_BASE_DELAY_MS = 300;
-
-async function sha256Hash(str: string): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(str));
-  return new Uint8Array(hashBuffer)
-    .slice(0, 12)
-    .toBase64({ alphabet: 'base64url', omitPadding: true });
+interface UrlCacheKeyBuilder {
+  (url: string): string;
 }
+
+const scheduleStorageEstimateUpdate = (): void => {
+  void updateStorageEstimate().catch(() => undefined);
+};
+
+setExternalResetHandler(() => resetCacheDatabases(updateStorageEstimate));
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,81 +50,82 @@ const fetchTextWithRetry = async (url: string): Promise<string> => {
     : new Error(`Fetch failed for ${url}`);
 };
 
-const dbNames: string[] = [];
-const createDB = (name: string) => {
-  dbNames.push(name);
-  return lf.createInstance({ name });
-};
-
-const persistentCache = createDB('persistentCacheV2');
-
-const getPersistentCache = async (
-  key: string,
-  fallback: () => Promise<string>,
-) => {
-  let value = await persistentCache.getItem<string>(key);
-  if (!value) {
-    value = await fallback();
-    await persistentCache.setItem(key, value);
-    updateStorageEstimate();
-  }
-  return value;
-};
-
-interface UrlCacheKeyBuilder {
-  (url: string): string;
-}
-
 export const persistentFetch = async (
   url: string,
   cacheKeyBuilder?: UrlCacheKeyBuilder,
 ): Promise<string> => {
-  const key = await sha256Hash(cacheKeyBuilder?.(url) ?? url);
-  return getPersistentCache(key, () => fetchTextWithRetry(url));
-};
+  const expectedEpoch = getCacheEpoch();
+  const keyHash = await sha256String(cacheKeyBuilder?.(url) ?? url);
+  return runSingleFlight(TEXT_DOMAIN, keyHash, expectedEpoch, async () => {
+    const cached = await readCacheValue(TEXT_DOMAIN, keyHash, decodeText).catch(
+      () => undefined,
+    );
+    if (cached !== undefined) return cached;
 
-const structCache = createDB('structCacheV10');
+    const value = await fetchTextWithRetry(url);
+    await writeCacheBytesIfAvailable(
+      TEXT_DOMAIN,
+      keyHash,
+      encodeText(value),
+      expectedEpoch,
+      scheduleStorageEstimateUpdate,
+    );
+    return value;
+  });
+};
 
 export const getOrSetStructCache = async (
   filePath: string,
   fallback: () => Promise<ClassStruct[]>,
 ): Promise<ClassStruct[]> => {
-  const key = await sha256Hash(filePath);
-  let value = await structCache.getItem<ClassStruct[]>(key);
-  if (!value) {
-    value = await fallback();
-    await structCache.setItem(key, value);
-    updateStorageEstimate();
-  }
-  return value;
+  const expectedEpoch = getCacheEpoch();
+  const keyHash = await sha256String(filePath);
+  return runSingleFlight(STRUCT_DOMAIN, keyHash, expectedEpoch, async () => {
+    const cached = await readCacheValue(
+      STRUCT_DOMAIN,
+      keyHash,
+      (bytes): ClassStruct[] => {
+        const value: unknown = JSON.parse(decodeText(bytes));
+        if (!Array.isArray(value)) {
+          throw new Error('Cached struct value is not an array');
+        }
+        return value as ClassStruct[];
+      },
+    ).catch(() => undefined);
+    if (cached !== undefined) return cached;
+
+    const value = await fallback();
+    await writeCacheBytesIfAvailable(
+      STRUCT_DOMAIN,
+      keyHash,
+      encodeText(JSON.stringify(value)),
+      expectedEpoch,
+      scheduleStorageEstimateUpdate,
+    );
+    return value;
+  });
 };
 
 export const check404File = async (filePath: string): Promise<boolean> => {
-  const key = await sha256Hash(filePath);
-  const value = await persistentCache.getItem<string>(key);
-  return !!value && value.startsWith('404:');
-};
-
-export const clearLocalCache = async () => {
-  await Promise.all(
-    dbNames.map(
-      (name) =>
-        new Promise<void>((resolve, reject) => {
-          const req = indexedDB.deleteDatabase(name);
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error);
-          req.onblocked = () => resolve();
-        }),
-    ),
-  );
-  await updateStorageEstimate();
-};
-
-// delete unused databases
-indexedDB.databases().then((dbs) => {
-  dbs.forEach((db) => {
-    if (!dbNames.includes(db.name!)) {
-      indexedDB.deleteDatabase(db.name!);
+  const expectedEpoch = getCacheEpoch();
+  const keyHash = await sha256String(filePath);
+  const current = getLogicalFlight(TEXT_DOMAIN, keyHash, expectedEpoch);
+  if (current) {
+    try {
+      const value: unknown = await current;
+      return typeof value === 'string' && value.startsWith('404:');
+    } catch {
+      return false;
     }
-  });
-});
+  }
+  const value = await readCacheValue(TEXT_DOMAIN, keyHash, decodeText).catch(
+    () => undefined,
+  );
+  return value?.startsWith('404:') ?? false;
+};
+
+export const clearLocalCache = async (): Promise<void> => {
+  invalidateLocalFlights();
+  broadcastCacheReset();
+  await resetCacheDatabases(updateStorageEstimate);
+};
