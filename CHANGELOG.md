@@ -1,7 +1,7 @@
 # Changelog
 
-## 0.0.3
+## 0.1.0
 
-- Store MCP responses in a content-addressed SQLite cache with Brotli compression, deduplication, reference tracking, and automatic repair.
-- Migrate legacy cache entries safely while keeping custom cache roots isolated from recursive migration or deletion.
-- Require Node.js 24.15 or newer for the MCP server.
+- Reuse unchanged Android framework source across tags with conditional ETag requests.
+- Share cached representations across the AOSP and android-cs GitHub mirrors.
+- Coalesce concurrent downloads and persist tag-ordered ETag metadata in the SQLite cache.

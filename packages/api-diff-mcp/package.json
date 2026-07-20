@@ -1,6 +1,6 @@
 {
   "name": "@android-cs/api-diff-mcp",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "type": "module",
   "repository": {
     "type": "git",
