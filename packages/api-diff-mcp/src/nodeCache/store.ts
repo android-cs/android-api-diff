@@ -3,6 +3,11 @@ import type {
   AndroidApiStructCacheEntry,
   CacheStore,
 } from '@android-cs/api-query';
+import type {
+  TextEtagCache,
+  TextEtagRepresentation,
+  TextEtagTag,
+} from '../textEtagCache.ts';
 import { NODE_CACHE_DOMAINS, type NodeCacheDomain } from './constants.ts';
 import { hashBytes, hashString } from './hashing.ts';
 import { SqliteContentAddressedCache } from './sqliteContentCache.ts';
@@ -179,6 +184,81 @@ const textCodec: BinaryCacheCodec<string> = {
   decode: (value) => textDecoder.decode(value),
 };
 
+class SqliteTextEtagCache implements TextEtagCache {
+  private readonly cache: SqliteContentAddressedCache;
+  private readonly lifecycle: CacheStoreLifecycle;
+
+  constructor(
+    cache: SqliteContentAddressedCache,
+    lifecycle: CacheStoreLifecycle,
+  ) {
+    this.cache = cache;
+    this.lifecycle = lifecycle;
+  }
+
+  async getPredecessor(
+    tag: TextEtagTag,
+  ): Promise<TextEtagRepresentation | undefined> {
+    return this.read(() =>
+      this.cache.readTextEtagPredecessor(hashString(tag.resourceKey), tag),
+    );
+  }
+
+  async getByEtag(
+    resourceKey: string,
+    etag: string,
+  ): Promise<TextEtagRepresentation | undefined> {
+    return this.read(() =>
+      this.cache.readTextByEtag(hashString(resourceKey), etag),
+    );
+  }
+
+  private async read(
+    operation: () => Promise<
+      { etag: string; rawValue: Uint8Array } | undefined
+    >,
+  ): Promise<TextEtagRepresentation | undefined> {
+    const finishOperation = this.lifecycle.startOperation();
+    if (!finishOperation) return;
+    try {
+      try {
+        const cached = await operation();
+        if (!cached) return;
+        return {
+          etag: cached.etag,
+          value: textCodec.decode(cached.rawValue),
+        };
+      } catch {
+        return;
+      }
+    } finally {
+      finishOperation();
+    }
+  }
+
+  async set(tag: TextEtagTag, etag: string, value: string): Promise<void> {
+    const finishOperation = this.lifecycle.startOperation();
+    if (!finishOperation) return;
+    try {
+      try {
+        const rawValue = textCodec.encode(value);
+        await this.cache.writeTextEtag(
+          hashString(tag.resourceKey),
+          tag,
+          etag,
+          hashBytes(rawValue),
+          rawValue,
+        );
+      } catch {
+        // HTTP validators are an optimization. Cache failures must not fail
+        // the underlying Android API query.
+      }
+    } finally {
+      finishOperation();
+    }
+  }
+}
+
 const jsonCodec = <T>(): BinaryCacheCodec<T> => ({
   encode: (value) => {
     const serialized = JSON.stringify(value);
@@ -195,6 +275,7 @@ export interface NodeCacheStores {
   databasePath: string;
   queryCache: CacheStore<AndroidApiQueryResult>;
   structCache: CacheStore<AndroidApiStructCacheEntry>;
+  textEtagCache: TextEtagCache;
   textCache: CacheStore<string>;
 }
 
@@ -226,6 +307,7 @@ export const createNodeCacheStores = (
       jsonCodec<AndroidApiStructCacheEntry>(),
       lifecycle,
     ),
+    textEtagCache: new SqliteTextEtagCache(cache, lifecycle),
     textCache: new SqliteCacheStore(
       cache,
       NODE_CACHE_DOMAINS.text,

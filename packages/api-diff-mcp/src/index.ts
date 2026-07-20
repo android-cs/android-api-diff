@@ -15,6 +15,7 @@ import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
 
 const runtime = createNodeRuntime();
 const PROGRESS_NOTIFICATION_INTERVAL_MS = 1_000;
+const MCP_QUERY_CONCURRENCY = 5;
 
 interface McpProgressUpdate extends Record<string, unknown> {
   progress: number;
@@ -129,6 +130,7 @@ server.registerTool(
     });
     const result = await generateAndroidApiCode(runtime, {
       apiName,
+      concurrency: MCP_QUERY_CONCURRENCY,
       minSdk,
       signal: ctx.mcpReq.signal,
       onProgress: (update) =>
@@ -172,6 +174,7 @@ server.registerTool(
     });
     const result = await queryAndroidApi(runtime, {
       apiName,
+      concurrency: MCP_QUERY_CONCURRENCY,
       minSdk,
       signal: ctx.mcpReq.signal,
       onProgress: (update) =>
@@ -234,6 +237,7 @@ server.registerTool(
     for (const [index, apiName] of apiNames.entries()) {
       const result = await queryAndroidApi(runtime, {
         apiName,
+        concurrency: MCP_QUERY_CONCURRENCY,
         minSdk,
         signal: ctx.mcpReq.signal,
         onProgress: (update) => {

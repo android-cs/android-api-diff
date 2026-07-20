@@ -15,7 +15,16 @@ import {
   type CacheBlobRow,
   openCacheDatabase,
   type PreparedStatements,
+  type TextEtagBlobRow,
+  type TextEtagCoordinates,
+  type TextEtagPreparedStatements,
 } from './sqliteSchema.ts';
+
+export interface CachedTextEtagValue {
+  coordinates: TextEtagCoordinates;
+  etag: string;
+  rawValue: Uint8Array;
+}
 
 export const getCacheDatabasePath = (cacheDir: string): string => {
   if (cacheDir.trim().length === 0) {
@@ -34,6 +43,7 @@ export class SqliteContentAddressedCache {
   private database?: DatabaseSync;
   private preparePromise?: Promise<void>;
   private statements?: Record<NodeCacheDomain, PreparedStatements>;
+  private textEtagStatements?: TextEtagPreparedStatements;
 
   constructor(cacheDir: string, removeLegacyDirectories: boolean) {
     if (cacheDir.trim().length === 0) {
@@ -51,14 +61,18 @@ export class SqliteContentAddressedCache {
 
   private async prepareCache(): Promise<void> {
     await mkdir(this.cacheDir, { recursive: true });
-    const { assertCurrentConnection, database, statements } = openCacheDatabase(
-      this.databasePath,
-    );
+    const {
+      assertCurrentConnection,
+      database,
+      statements,
+      textEtagStatements,
+    } = openCacheDatabase(this.databasePath);
 
     try {
       this.assertCurrentConnection = assertCurrentConnection;
       this.database = database;
       this.statements = statements;
+      this.textEtagStatements = textEtagStatements;
       if (this.removeLegacyDirectories) {
         await removeLegacyCacheDirectories(this.cacheDir).catch(() => {
           // Migration cleanup is optional; an undeletable legacy cache must
@@ -70,6 +84,7 @@ export class SqliteContentAddressedCache {
       this.assertCurrentConnection = undefined;
       this.database = undefined;
       this.statements = undefined;
+      this.textEtagStatements = undefined;
       throw error;
     }
   }
@@ -82,6 +97,13 @@ export class SqliteContentAddressedCache {
   private getStatements(domain: NodeCacheDomain): PreparedStatements {
     if (!this.statements) throw new Error('Cache database is not prepared');
     return this.statements[domain];
+  }
+
+  private getTextEtagStatements(): TextEtagPreparedStatements {
+    if (!this.textEtagStatements) {
+      throw new Error('Cache database is not prepared');
+    }
+    return this.textEtagStatements;
   }
 
   private assertConnectionIsCurrent(): void {
@@ -168,6 +190,103 @@ export class SqliteContentAddressedCache {
         this.compressionFlights.delete(contentHash);
       }
     }
+  }
+
+  private isValidCoordinate(value: unknown): value is number {
+    return (
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    );
+  }
+
+  private async decodeTextEtagRow(
+    row: TextEtagBlobRow | undefined,
+  ): Promise<CachedTextEtagValue | undefined> {
+    if (!row) return;
+    const { revision, versionMajor, versionMinor, versionPatch } = row;
+    if (
+      typeof row.etag !== 'string' ||
+      typeof row.resourceHash !== 'string' ||
+      typeof row.contentHash !== 'string' ||
+      !this.isValidCoordinate(versionMajor) ||
+      !this.isValidCoordinate(versionMinor) ||
+      !this.isValidCoordinate(versionPatch) ||
+      !this.isValidCoordinate(revision)
+    ) {
+      return;
+    }
+    const coordinates: TextEtagCoordinates = {
+      versionMajor,
+      versionMinor,
+      versionPatch,
+      revision,
+    };
+    const contentHash = row.contentHash;
+    if (typeof row.generation !== 'string') {
+      this.removeTextEtagRef(row.resourceHash, coordinates, contentHash);
+      return;
+    }
+    const generation = row.generation;
+    if (
+      typeof row.rawSize !== 'number' ||
+      !Number.isSafeInteger(row.rawSize) ||
+      row.rawSize < 0 ||
+      row.rawSize > MAX_CACHE_ENTRY_BYTES ||
+      typeof row.payloadSize !== 'number' ||
+      !Number.isSafeInteger(row.payloadSize) ||
+      row.payloadSize < 0 ||
+      row.payloadSize > MAX_CACHE_PAYLOAD_BYTES ||
+      !(row.payload instanceof Uint8Array)
+    ) {
+      this.invalidateBlob('text', undefined, contentHash, generation);
+      return;
+    }
+
+    try {
+      const rawValue = await decompressBrotli(row.payload);
+      if (
+        rawValue.byteLength !== row.rawSize ||
+        hashBytes(rawValue) !== contentHash
+      ) {
+        this.invalidateBlob('text', undefined, contentHash, generation);
+        return;
+      }
+      return { coordinates, etag: row.etag, rawValue };
+    } catch {
+      this.invalidateBlob('text', undefined, contentHash, generation);
+      return;
+    }
+  }
+
+  async readTextEtagPredecessor(
+    resourceHash: string,
+    coordinates: TextEtagCoordinates,
+  ): Promise<CachedTextEtagValue | undefined> {
+    await this.prepare();
+    const row = this.readTransaction(
+      () =>
+        this.getTextEtagStatements().readPredecessor.get(
+          resourceHash,
+          coordinates.versionMajor,
+          coordinates.versionMinor,
+          coordinates.versionPatch,
+          coordinates.revision,
+        ) as TextEtagBlobRow | undefined,
+    );
+    return this.decodeTextEtagRow(row);
+  }
+
+  async readTextByEtag(
+    resourceHash: string,
+    etag: string,
+  ): Promise<CachedTextEtagValue | undefined> {
+    await this.prepare();
+    const row = this.readTransaction(
+      () =>
+        this.getTextEtagStatements().readByEtag.get(resourceHash, etag) as
+          | TextEtagBlobRow
+          | undefined,
+    );
+    return this.decodeTextEtagRow(row);
   }
 
   async readRaw(
@@ -257,6 +376,89 @@ export class SqliteContentAddressedCache {
     });
   }
 
+  private upsertTextEtagRefAndRemoveOrphan(
+    resourceHash: string,
+    coordinates: TextEtagCoordinates,
+    etag: string,
+    contentHash: string,
+  ): void {
+    const statements = this.getTextEtagStatements();
+    const key = [
+      resourceHash,
+      coordinates.versionMajor,
+      coordinates.versionMinor,
+      coordinates.versionPatch,
+      coordinates.revision,
+    ] as const;
+    const previousContentHash = statements.readRefContentHash.get(
+      ...key,
+    )?.contentHash;
+    statements.upsertRef.run(...key, etag, contentHash);
+    if (
+      typeof previousContentHash === 'string' &&
+      previousContentHash !== contentHash
+    ) {
+      this.getStatements('text').deleteOrphanBlob.run(previousContentHash);
+    }
+  }
+
+  private linkTextEtagToExistingBlob(
+    resourceHash: string,
+    coordinates: TextEtagCoordinates,
+    etag: string,
+    contentHash: string,
+  ): boolean {
+    return this.transaction(() => {
+      if (!this.hasBlob('text', contentHash)) return false;
+      this.upsertTextEtagRefAndRemoveOrphan(
+        resourceHash,
+        coordinates,
+        etag,
+        contentHash,
+      );
+      return true;
+    });
+  }
+
+  async writeTextEtag(
+    resourceHash: string,
+    coordinates: TextEtagCoordinates,
+    etag: string,
+    contentHash: string,
+    rawValue: Uint8Array,
+  ): Promise<void> {
+    await this.prepare();
+    if (rawValue.byteLength > MAX_CACHE_ENTRY_BYTES) {
+      throw new RangeError('Cache entry exceeds the maximum supported size');
+    }
+    if (
+      this.linkTextEtagToExistingBlob(
+        resourceHash,
+        coordinates,
+        etag,
+        contentHash,
+      )
+    ) {
+      return;
+    }
+
+    const payload = await this.getCompressedBlob(contentHash, rawValue);
+    this.transaction(() => {
+      this.getStatements('text').insertBlob.run(
+        contentHash,
+        randomUUID(),
+        rawValue.byteLength,
+        payload,
+      );
+      this.upsertTextEtagRefAndRemoveOrphan(
+        resourceHash,
+        coordinates,
+        etag,
+        contentHash,
+      );
+    });
+  }
+
   async invalidate(
     domain: NodeCacheDomain,
     keyHash: string,
@@ -281,9 +483,26 @@ export class SqliteContentAddressedCache {
     });
   }
 
+  private removeTextEtagRef(
+    resourceHash: string,
+    coordinates: TextEtagCoordinates,
+    contentHash: string,
+  ): void {
+    this.transaction(() => {
+      this.getTextEtagStatements().deleteRef.run(
+        resourceHash,
+        coordinates.versionMajor,
+        coordinates.versionMinor,
+        coordinates.versionPatch,
+        coordinates.revision,
+      );
+      this.getStatements('text').deleteOrphanBlob.run(contentHash);
+    });
+  }
+
   private invalidateBlob(
     domain: NodeCacheDomain,
-    keyHash: string,
+    keyHash: string | undefined,
     contentHash: string,
     generation: string,
   ): void {
@@ -293,7 +512,11 @@ export class SqliteContentAddressedCache {
       // only the generation we read, then let the foreign key invalidate all
       // refs to that corrupt generation without racing a concurrent rebuild.
       const deleted = statements.deleteBlob.run(contentHash, generation);
-      if (deleted.changes === 0 && !this.hasBlob(domain, contentHash)) {
+      if (
+        keyHash !== undefined &&
+        deleted.changes === 0 &&
+        !this.hasBlob(domain, contentHash)
+      ) {
         statements.deleteRef.run(keyHash, contentHash, contentHash);
       }
     });
@@ -311,5 +534,6 @@ export class SqliteContentAddressedCache {
     this.assertCurrentConnection = undefined;
     this.database = undefined;
     this.statements = undefined;
+    this.textEtagStatements = undefined;
   }
 }

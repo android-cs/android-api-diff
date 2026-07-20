@@ -4,8 +4,9 @@ import {
 } from '@android-cs/api-query/query';
 
 export const CACHE_DATABASE_FILENAME = 'cache-v2.sqlite';
-export const CACHE_FORMAT_VERSION = 1;
+export const CACHE_FORMAT_VERSION = 2;
 export const CACHE_BLOB_CODEC = 'br1';
+export const ETAG_CACHE_VERSION = '1';
 export const BROTLI_QUALITY = 5;
 export const MAX_CACHE_ENTRY_BYTES = 64 * 1024 * 1024;
 export const MAX_CACHE_PAYLOAD_BYTES = MAX_CACHE_ENTRY_BYTES + 1024 * 1024;
@@ -29,13 +30,14 @@ export const NODE_CACHE_VERSIONS = {
 } as const satisfies Record<NodeCacheDomain, string>;
 
 const CACHE_VERSION_KEY =
-  `${CACHE_FORMAT_VERSION}|${CACHE_BLOB_CODEC}|${NODE_CACHE_VERSIONS.text}|${NODE_CACHE_VERSIONS.struct}|${NODE_CACHE_VERSIONS.query}` as const;
+  `${CACHE_FORMAT_VERSION}|${CACHE_BLOB_CODEC}|${NODE_CACHE_VERSIONS.text}|${NODE_CACHE_VERSIONS.struct}|${NODE_CACHE_VERSIONS.query}|${ETAG_CACHE_VERSION}` as const;
 
 // Add a new key with a strictly larger value whenever any component in
 // CACHE_VERSION_KEY changes. Keeping prior keys makes the monotonic history
 // explicit and turns an unregistered version combination into a type error.
 const CACHE_CONNECTION_EPOCHS = {
   '1|br1|1|struct:v9:1|query:v19:1': 1,
+  '2|br1|1|struct:v9:1|query:v19:1|1': 2,
 } as const;
 
 export const CACHE_CONNECTION_EPOCH =

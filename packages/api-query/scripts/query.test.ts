@@ -92,6 +92,59 @@ assert.deepEqual(
 );
 
 {
+  const startedTags: string[] = [];
+  const versionMajorRuntime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => ['core/java/android/app/IOrdered.aidl'],
+    loadAndroidVersionList: async () => [
+      {
+        version: '8',
+        alias: 'O',
+        apiVersion: 26,
+        tags: ['android-8.0.0_r1', 'android-8.0.0_r2'],
+        futureTags: [],
+      },
+      {
+        version: '9',
+        alias: 'P',
+        apiVersion: 28,
+        tags: ['android-9.0.0_r1', 'android-9.0.0_r2'],
+        futureTags: [],
+      },
+      {
+        version: '10',
+        alias: 'Q',
+        apiVersion: 29,
+        tags: ['android-10.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async (url) => {
+      const match = url.match(/\/(android-[^/]+)\//);
+      assert.ok(match?.[1]);
+      startedTags.push(match[1]);
+      return `
+package android.app;
+interface IOrdered {
+  void ping();
+}
+`;
+    },
+  };
+
+  await queryAndroidApi(versionMajorRuntime, {
+    apiName: 'IOrdered.ping',
+    concurrency: 1,
+  });
+  assert.deepEqual(startedTags, [
+    'android-8.0.0_r1',
+    'android-8.0.0_r2',
+    'android-9.0.0_r1',
+    'android-9.0.0_r2',
+    'android-10.0.0_r1',
+  ]);
+}
+
+{
   const fetchedUrls: string[] = [];
   let activeRequests = 0;
   let maxActiveRequests = 0;

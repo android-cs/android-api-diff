@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import type { AndroidApiQueryRuntime } from '@android-cs/api-query';
 import { createNodeCacheStores } from './nodeCache/index.ts';
-import { fetchTextWithRetry } from './nodeNetwork.ts';
+import { createFetchTextWithRetry } from './nodeNetwork.ts';
 
 export {
   createNodeCacheStores,
@@ -28,6 +28,9 @@ export const createNodeRuntime = (
     removeLegacyDirectories:
       resolve(cacheDir) === resolve(getBuiltInCacheDir()),
   });
+  const fetchTextWithRetry = createFetchTextWithRetry(
+    cacheStores.textEtagCache,
+  );
   return {
     fetchText: fetchTextWithRetry,
     textCache: cacheStores.textCache,

@@ -15,6 +15,7 @@ import {
   CACHE_BLOB_CODEC,
   CACHE_CONNECTION_EPOCH,
   CACHE_FORMAT_VERSION,
+  ETAG_CACHE_VERSION,
   NODE_CACHE_VERSIONS,
 } from './nodeCache/constants.ts';
 import { createNodeCacheStores } from './nodeRuntime.ts';
@@ -40,6 +41,23 @@ const queryValue = {
   },
   ranges: [],
 };
+
+const etagTag = (
+  revision: number,
+  versionMajor = 13,
+): {
+  resourceKey: string;
+  revision: number;
+  versionMajor: number;
+  versionMinor: number;
+  versionPatch: number;
+} => ({
+  resourceKey: 'raw-github:1:gzip:android-frameworks-base:Example.java',
+  versionMajor,
+  versionMinor: 0,
+  versionPatch: 0,
+  revision,
+});
 
 const createCacheDir = (): Promise<string> => {
   return mkdtemp(join(tmpdir(), 'android-api-diff-cache-test-'));
@@ -228,15 +246,177 @@ test('stores schema metadata once and omits scope and codec from data rows', asy
         getMetaValue(database, 'query_version'),
         NODE_CACHE_VERSIONS.query,
       );
+      assert.equal(getMetaValue(database, 'etag_version'), ETAG_CACHE_VERSION);
       const metaCount = database
         .prepare('SELECT COUNT(*) AS count FROM meta')
         .get()?.count;
-      assert.equal(metaCount, 5);
+      assert.equal(metaCount, 6);
     } finally {
       database.close();
     }
   } finally {
     await stores.close();
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('persists tag-ordered ETags while sharing text blobs', async () => {
+  const cacheDir = await createCacheDir();
+  let stores: ReturnType<typeof createNodeCacheStores> | undefined;
+
+  try {
+    stores = createNodeCacheStores(cacheDir);
+    await stores.textEtagCache.set(etagTag(1), 'W/"same"', 'source A');
+    await stores.textEtagCache.set(etagTag(2), 'W/"same"', 'source A');
+    await stores.textEtagCache.set(etagTag(3), 'W/"changed"', 'source B');
+
+    assert.deepEqual(await stores.textEtagCache.getPredecessor(etagTag(3)), {
+      etag: 'W/"same"',
+      value: 'source A',
+    });
+    assert.deepEqual(
+      await stores.textEtagCache.getByEtag(etagTag(1).resourceKey, 'W/"same"'),
+      { etag: 'W/"same"', value: 'source A' },
+    );
+
+    const databasePath = stores.databasePath;
+    await stores.close();
+    stores = createNodeCacheStores(cacheDir);
+    assert.deepEqual(await stores.textEtagCache.getPredecessor(etagTag(4)), {
+      etag: 'W/"changed"',
+      value: 'source B',
+    });
+    await stores.close();
+    stores = undefined;
+
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        database.prepare('SELECT COUNT(*) AS count FROM text_etag_refs').get()
+          ?.count,
+        3,
+      );
+      assert.equal(getCount(database, 'text_blobs'), 2);
+    } finally {
+      database.close();
+    }
+  } finally {
+    await stores?.close();
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('migrates the v1 cache schema without losing existing values', async () => {
+  const cacheDir = await createCacheDir();
+  let stores: ReturnType<typeof createNodeCacheStores> | undefined;
+
+  try {
+    stores = createNodeCacheStores(cacheDir);
+    await populateEveryDomain(stores);
+    const databasePath = stores.databasePath;
+    await stores.close();
+    stores = undefined;
+
+    const versionOneDatabase = new DatabaseSync(databasePath);
+    try {
+      versionOneDatabase.exec(`
+        DROP TABLE text_etag_refs;
+        DELETE FROM meta WHERE key = 'etag_version';
+        UPDATE meta SET value = '1' WHERE key = 'cache_epoch';
+        PRAGMA user_version = 1;
+      `);
+    } finally {
+      versionOneDatabase.close();
+    }
+
+    stores = createNodeCacheStores(cacheDir);
+    assert.equal(await stores.textCache.get('Example.java'), 'cached source');
+    assert.deepEqual(await stores.structCache.get('Example.java'), structValue);
+    assert.deepEqual(await stores.queryCache.get('Example'), queryValue);
+    await stores.close();
+    stores = undefined;
+
+    const migratedDatabase = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(getUserVersion(migratedDatabase), CACHE_FORMAT_VERSION);
+      assert.equal(
+        getMetaValue(migratedDatabase, 'cache_epoch'),
+        String(CACHE_CONNECTION_EPOCH),
+      );
+      assert.equal(
+        getMetaValue(migratedDatabase, 'etag_version'),
+        ETAG_CACHE_VERSION,
+      );
+      assert.ok(
+        migratedDatabase
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'text_etag_refs'",
+          )
+          .get(),
+      );
+      assert.equal(getCount(migratedDatabase, 'text_refs'), 1);
+      assert.equal(getCount(migratedDatabase, 'struct_refs'), 1);
+      assert.equal(getCount(migratedDatabase, 'query_refs'), 1);
+    } finally {
+      migratedDatabase.close();
+    }
+  } finally {
+    await stores?.close();
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('clears only ETag refs when their logical version changes', async () => {
+  const cacheDir = await createCacheDir();
+  let stores: ReturnType<typeof createNodeCacheStores> | undefined;
+
+  try {
+    stores = createNodeCacheStores(cacheDir);
+    await stores.textCache.set('Example.java', 'cached source');
+    await stores.textEtagCache.set(etagTag(1), 'W/"cached"', 'cached source');
+    const databasePath = stores.databasePath;
+    await stores.close();
+    stores = undefined;
+
+    const versionDatabase = new DatabaseSync(databasePath);
+    try {
+      versionDatabase
+        .prepare("UPDATE meta SET value = 'stale' WHERE key = 'etag_version'")
+        .run();
+    } finally {
+      versionDatabase.close();
+    }
+
+    stores = createNodeCacheStores(cacheDir);
+    assert.equal(await stores.textCache.get('Example.java'), 'cached source');
+    assert.equal(
+      await stores.textEtagCache.getPredecessor(etagTag(2)),
+      undefined,
+    );
+    await stores.close();
+    stores = undefined;
+
+    const inspectingDatabase = new DatabaseSync(databasePath, {
+      readOnly: true,
+    });
+    try {
+      assert.equal(
+        inspectingDatabase
+          .prepare('SELECT COUNT(*) AS count FROM text_etag_refs')
+          .get()?.count,
+        0,
+      );
+      assert.equal(getCount(inspectingDatabase, 'text_refs'), 1);
+      assert.equal(getCount(inspectingDatabase, 'text_blobs'), 1);
+      assert.equal(
+        getMetaValue(inspectingDatabase, 'cache_epoch'),
+        String(CACHE_CONNECTION_EPOCH),
+      );
+    } finally {
+      inspectingDatabase.close();
+    }
+  } finally {
+    await stores?.close();
     await rm(cacheDir, { recursive: true, force: true });
   }
 });
@@ -250,6 +430,7 @@ test('invalidates every ref to a corrupt shared blob and can rebuild it', async 
     await Promise.all([
       stores.textCache.set('Example.java', 'cached source'),
       stores.textCache.set('ExampleCopy.java', 'cached source'),
+      stores.textEtagCache.set(etagTag(1), 'W/"cached"', 'cached source'),
     ]);
     const databasePath = stores.databasePath;
     await stores.close();
@@ -267,6 +448,10 @@ test('invalidates every ref to a corrupt shared blob and can rebuild it', async 
     stores = createNodeCacheStores(cacheDir);
     assert.equal(await stores.textCache.get('Example.java'), undefined);
     assert.equal(await stores.textCache.get('ExampleCopy.java'), undefined);
+    assert.equal(
+      await stores.textEtagCache.getPredecessor(etagTag(2)),
+      undefined,
+    );
     await stores.close();
     stores = undefined;
 
@@ -276,6 +461,12 @@ test('invalidates every ref to a corrupt shared blob and can rebuild it', async 
     try {
       assert.equal(getCount(inspectingDatabase, 'text_refs'), 0);
       assert.equal(getCount(inspectingDatabase, 'text_blobs'), 0);
+      assert.equal(
+        inspectingDatabase
+          .prepare('SELECT COUNT(*) AS count FROM text_etag_refs')
+          .get()?.count,
+        0,
+      );
     } finally {
       inspectingDatabase.close();
     }
@@ -397,6 +588,7 @@ test('clears only the domain whose logical version changed', async () => {
   try {
     stores = createNodeCacheStores(cacheDir);
     await populateEveryDomain(stores);
+    await stores.textEtagCache.set(etagTag(1), 'W/"cached"', 'cached source');
     const databasePath = stores.databasePath;
     await stores.close();
     stores = undefined;
@@ -412,6 +604,10 @@ test('clears only the domain whose logical version changed', async () => {
 
     stores = createNodeCacheStores(cacheDir);
     assert.equal(await stores.textCache.get('Example.java'), undefined);
+    assert.equal(
+      await stores.textEtagCache.getPredecessor(etagTag(2)),
+      undefined,
+    );
     assert.deepEqual(await stores.structCache.get('Example.java'), structValue);
     assert.deepEqual(await stores.queryCache.get('Example'), queryValue);
     await stores.close();
@@ -423,6 +619,12 @@ test('clears only the domain whose logical version changed', async () => {
     try {
       assert.equal(getCount(inspectingDatabase, 'text_refs'), 0);
       assert.equal(getCount(inspectingDatabase, 'text_blobs'), 0);
+      assert.equal(
+        inspectingDatabase
+          .prepare('SELECT COUNT(*) AS count FROM text_etag_refs')
+          .get()?.count,
+        0,
+      );
       assert.equal(getCount(inspectingDatabase, 'struct_refs'), 1);
       assert.equal(getCount(inspectingDatabase, 'struct_blobs'), 1);
       assert.equal(getCount(inspectingDatabase, 'query_refs'), 1);
