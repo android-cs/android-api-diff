@@ -67,6 +67,43 @@ export const searchFilePathByName = (
   return aidlJavaFiles.find((v) => v.endsWith(a));
 };
 
+const getConstructorShorthandClassName = (
+  name: string,
+  aidlJavaFiles: readonly string[],
+): string | undefined => {
+  if (!name.endsWith('()')) return;
+  const className = name.substring(0, name.length - 2).trim();
+  if (/[#?;]/.test(className)) return;
+  const simpleName = className.replaceAll('$', '.').split('.').at(-1);
+  if (!simpleName) return;
+  if (
+    isLikelyMemberName(simpleName) &&
+    !searchFilePathByName(className, aidlJavaFiles)
+  ) {
+    return;
+  }
+  return className;
+};
+
+const isConstructorShorthand = (
+  name: string,
+  aidlJavaFiles: readonly string[],
+): boolean => {
+  return (
+    getConstructorShorthandClassName(name.trim(), aidlJavaFiles) !== undefined
+  );
+};
+
+export const isConstructorReference = (
+  name: string,
+  aidlJavaFiles: readonly string[],
+  search: SearchFromData | undefined,
+): boolean => {
+  if (isConstructorShorthand(name, aidlJavaFiles)) return true;
+  if (!name.includes('#') || search?.targetKind !== 'member') return false;
+  return search.targetPaths.at(-1) === search.targetPaths.at(-2);
+};
+
 export const resolveFileTargets = (
   name: string,
   aidlJavaFiles: readonly string[],
@@ -136,6 +173,25 @@ export const searchFilePathByRefName = (
     const filePath = searchFilePathByName(fileName, aidlJavaFiles);
     if (filePath) {
       return createSearchFromData(filePath, [], 'file');
+    }
+  }
+
+  const constructorClassName = getConstructorShorthandClassName(
+    name,
+    aidlJavaFiles,
+  );
+  if (constructorClassName) {
+    for (const target of resolveFileTargets(
+      constructorClassName,
+      aidlJavaFiles,
+    )) {
+      const constructorName = target.targetPaths.at(-1);
+      if (!constructorName) continue;
+      return createSearchFromData(
+        target.filePath,
+        [...target.targetPaths, constructorName],
+        'member',
+      );
     }
   }
 

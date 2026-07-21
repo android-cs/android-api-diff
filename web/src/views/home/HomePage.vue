@@ -331,7 +331,7 @@ const handleClearLocalCache = async () => {
           box-border
           type="text"
           v-model="searchRef"
-          placeholder="Please input Java/AIDL Member Reference"
+          placeholder="Class, Class(), or Class.member"
           outline-none
           transition-colors
           b-1px

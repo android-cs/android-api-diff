@@ -3,7 +3,11 @@ import { getAIDLStructList, getJavaStructList } from '@android-cs/api-parser';
 import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
-import { searchFilePathByRefName, toAndroidApiResolution } from './resolve.ts';
+import {
+  isConstructorReference,
+  searchFilePathByRefName,
+  toAndroidApiResolution,
+} from './resolve.ts';
 import { findStructPathByPath } from './struct.ts';
 import type {
   AndroidApiMemberResult,
@@ -19,7 +23,7 @@ import type {
 import { getMirrorContentUrl } from './url.ts';
 
 export const STRUCT_CACHE_VERSION = 'struct:v9';
-export const QUERY_CACHE_VERSION = 'query:v19';
+export const QUERY_CACHE_VERSION = 'query:v20';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -332,6 +336,11 @@ export const queryAndroidApi = async (
     await runtime.queryCache?.set(cacheKey, result);
     return result;
   }
+  const constructorReference = isConstructorReference(
+    normalizedApiName,
+    aidlJavaFiles,
+    search,
+  );
 
   const resolution = toAndroidApiResolution(search)!;
   const androidVersionList = getSelectedTags(
@@ -387,7 +396,9 @@ export const queryAndroidApi = async (
               if (foundTypePath && foundTarget && propName) {
                 typePath = foundTypePath.map(toResolvedType);
                 const matchedMembers = foundTarget.members.filter(
-                  (v) => v.name === propName,
+                  (v) =>
+                    v.name === propName &&
+                    (!constructorReference || v.kind === 'constructor'),
                 );
                 if (matchedMembers.length > 0) {
                   targetFound = true;

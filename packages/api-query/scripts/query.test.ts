@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { loadAndroidVersionList } from '../src/data.ts';
 import { queryAndroidApi } from '../src/query.ts';
+import { searchFilePathByRefName } from '../src/resolve.ts';
 import type { AndroidApiQueryRuntime } from '../src/types.ts';
 
 const version13Tags = [
@@ -38,6 +39,122 @@ public interface IExample {
 `;
   },
 };
+
+{
+  const files = [
+    'core/java/android/app/IExample.java',
+    'core/java/android/app/Outer.java',
+    'core/java/android/database/ContentObserver.java',
+    'opengl/java/android/opengl/GLU.java',
+  ];
+  const resolve = (apiName: string) => searchFilePathByRefName(apiName, files);
+
+  assert.equal(resolve('ContentObserver')?.targetKind, 'class');
+  assert.deepEqual(resolve('ContentObserver')?.targetPaths, [
+    'ContentObserver',
+  ]);
+  assert.deepEqual(resolve('ContentObserver()')?.targetPaths, [
+    'ContentObserver',
+    'ContentObserver',
+  ]);
+  assert.equal(resolve('ContentObserver()')?.targetKind, 'member');
+  assert.deepEqual(resolve('android.database.ContentObserver()')?.targetPaths, [
+    'ContentObserver',
+    'ContentObserver',
+  ]);
+  assert.deepEqual(resolve('Outer.Inner()')?.targetPaths, [
+    'Outer',
+    'Inner',
+    'Inner',
+  ]);
+  assert.deepEqual(resolve('Outer.URL()')?.targetPaths, ['Outer', 'URL']);
+  assert.equal(resolve('Outer.URL()')?.targetKind, 'member');
+  assert.deepEqual(resolve('Outer.URL#URL')?.targetPaths, [
+    'Outer',
+    'URL',
+    'URL',
+  ]);
+  assert.deepEqual(resolve('IExample.ping()')?.targetPaths, [
+    'IExample',
+    'ping',
+  ]);
+  assert.deepEqual(resolve('IExample.PING()')?.targetPaths, [
+    'IExample',
+    'PING',
+  ]);
+  assert.deepEqual(resolve('GLU()')?.targetPaths, ['GLU', 'GLU']);
+  assert.deepEqual(resolve('android.opengl.GLU()')?.targetPaths, [
+    'GLU',
+    'GLU',
+  ]);
+  assert.deepEqual(resolve('IExample#ping()')?.targetPaths, [
+    'IExample',
+    'ping',
+  ]);
+  assert.deepEqual(resolve('ContentObserver#ContentObserver')?.targetPaths, [
+    'ContentObserver',
+    'ContentObserver',
+  ]);
+}
+
+{
+  const constructorRuntime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => [
+      'core/java/android/database/ContentObserver.java',
+    ],
+    loadAndroidVersionList: async () => [
+      {
+        version: '15',
+        alias: 'VANILLA_ICE_CREAM',
+        apiVersion: 35,
+        tags: ['android-15.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async () => `
+package android.database;
+
+public abstract class ContentObserver {
+  public ContentObserver(Handler handler) {}
+  public ContentObserver(Handler handler, int flags) {}
+  public void ContentObserver() {}
+  public int ContentObserver;
+}
+`,
+  };
+  const constructorResult = await queryAndroidApi(constructorRuntime, {
+    apiName: 'ContentObserver()',
+  });
+
+  assert.deepEqual(constructorResult.resolvedTarget?.paths, [
+    'ContentObserver',
+    'ContentObserver',
+  ]);
+  assert.deepEqual(
+    constructorResult.ranges[0]?.members?.map((member) => ({
+      kind: member.kind,
+      type: member.type,
+    })),
+    [
+      { kind: 'constructor', type: '(Handler) -> ContentObserver' },
+      { kind: 'constructor', type: '(Handler, int) -> ContentObserver' },
+    ],
+  );
+
+  const legacyConstructorResult = await queryAndroidApi(constructorRuntime, {
+    apiName: 'ContentObserver#ContentObserver',
+  });
+  assert.deepEqual(
+    legacyConstructorResult.ranges[0]?.members?.map((member) => ({
+      kind: member.kind,
+      type: member.type,
+    })),
+    constructorResult.ranges[0]?.members?.map((member) => ({
+      kind: member.kind,
+      type: member.type,
+    })),
+  );
+}
 
 const progressUpdates: Array<{
   completedTags: number;

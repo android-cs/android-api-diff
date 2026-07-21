@@ -114,7 +114,7 @@ server.registerTool(
         .string()
         .min(1)
         .describe(
-          'Member API name, such as IActivityManager.getTasks or ActivityThread.currentApplication.',
+          'Member API name, such as ContentObserver(), IActivityManager.getTasks, or ActivityThread.currentApplication.',
         ),
       minSdk: z.number().int().optional(),
     }),
@@ -158,7 +158,7 @@ server.registerTool(
         .string()
         .min(1)
         .describe(
-          'API name, such as IActivityManager.getTasks, ActivityThread#currentApplication, or android.app.IActivityManager.',
+          'API name, such as ContentObserver(), IActivityManager.getTasks, ActivityThread#currentApplication, or android.app.IActivityManager.',
         ),
       minSdk: z.number().int().optional(),
     }),
@@ -198,7 +198,12 @@ server.registerTool(
     description:
       'Resolve an Android API name to the frameworks/base file, target path, and target kind without fetching source versions.',
     inputSchema: z.object({
-      apiName: z.string().min(1),
+      apiName: z
+        .string()
+        .min(1)
+        .describe(
+          'API name, such as ContentObserver(), IActivityManager.getTasks, or android.app.IActivityManager.',
+        ),
     }),
   },
   async ({ apiName }) => {

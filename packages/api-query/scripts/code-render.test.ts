@@ -33,6 +33,19 @@ const method = (
   parameters,
 });
 
+const constructor = (
+  name: string,
+  parameters: Extract<
+    AndroidApiMemberResult,
+    { kind: 'constructor' }
+  >['parameters'],
+): AndroidApiMemberResult => ({
+  kind: 'constructor',
+  name,
+  type: `(${parameters.map((parameter) => parameter.type).join(', ')}) -> ${name}`,
+  parameters,
+});
+
 const range = (
   version: string,
   alias: string,
@@ -103,6 +116,31 @@ const baseResult = (
   },
   ranges,
 });
+
+{
+  const result = renderAndroidApiCode(
+    baseResult(
+      'android.database.ContentObserver()',
+      'core/java/android/database/ContentObserver.java',
+      ['ContentObserver', 'ContentObserver'],
+      [
+        range('15', 'VANILLA_ICE_CREAM', 35, 'android-15.0.0_r1', [
+          constructor('ContentObserver', [
+            { name: 'handler', type: 'Handler' },
+          ]),
+        ]),
+      ],
+    ),
+  );
+
+  assert.match(result.code, /^package android\.database;/);
+  assert.match(result.code, /public class ContentObserver \{/);
+  assert.match(
+    result.code,
+    /public ContentObserver\(Handler handler\) \{ throw new RuntimeException\(\); \}/,
+  );
+  assert.doesNotMatch(result.code, /class database/);
+}
 
 {
   const abstractMethod = method('String', [], 'getValue', true);

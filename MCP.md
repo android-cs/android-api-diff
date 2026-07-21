@@ -34,8 +34,11 @@ Restart the client after changing its MCP configuration.
 Ask the AI client in natural language. It will select the matching MCP tool. For example:
 
 - `Inspect how IActivityManager.getTasks changes from minSdk 28.`
+- `Inspect all ContentObserver() constructor overloads.`
 - `Generate Java code for ActivityThread.currentApplication with minSdk 28.`
 - `Resolve android.app.IActivityManager to its frameworks/base source file.`
+
+Use `ClassName()` to query all constructors of a class, for example `ContentObserver()`. The existing `ClassName#ClassName` form is also accepted. For an ambiguous nested all-uppercase class name, use the explicit form, such as `Outer.URL#URL`.
 
 | Tool                        | Use it for                                                                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------- |

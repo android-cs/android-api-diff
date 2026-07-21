@@ -21,6 +21,7 @@ import {
   watchImmediate,
 } from '@vueuse/core';
 import type { ClassMember, ClassMemberParam } from '@android-cs/api-parser';
+import { isConstructorReference } from '@android-cs/api-query';
 import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -288,6 +289,11 @@ export const useSharedHomeState = createSharedComposable(() => {
     if (!builder?.filePath) return emptyArray;
     const targetKind = searchFromData.value.targetKind;
     const targetPaths = searchFromData.value.targetPaths;
+    const constructorReference = isConstructorReference(
+      searchRef.value,
+      aidlJavaFiles.value,
+      searchFromData.value,
+    );
     if (!isCanParsedUrl.value) return emptyArray;
     if (targetKind !== 'file' && targetPaths.length === 0) return emptyArray;
     return androidOrderTags.value
@@ -313,7 +319,11 @@ export const useSharedHomeState = createSharedComposable(() => {
             const propName = targetPaths.at(-1);
             target = findStructByPath(structs, targetPaths.slice(0, -1));
             if (target && propName) {
-              members = target.members.filter((v) => v.name === propName);
+              members = target.members.filter(
+                (v) =>
+                  v.name === propName &&
+                  (!constructorReference || v.kind === 'constructor'),
+              );
               if (members.length > 0) {
                 typeDesc = members
                   .sort(

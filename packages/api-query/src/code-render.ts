@@ -756,12 +756,18 @@ const getQueryClassRefParts = (result: AndroidApiQueryResult): string[] => {
   if (sourceFileReg.test(classRef)) return [];
 
   if (target.kind === 'member') {
-    const hashIndex = classRef.indexOf('#');
-    if (hashIndex >= 0) {
-      classRef = classRef.substring(0, hashIndex);
+    const isConstructorShorthand =
+      classRef.endsWith('()') && target.paths.at(-1) === target.paths.at(-2);
+    if (isConstructorShorthand) {
+      classRef = classRef.substring(0, classRef.length - 2);
     } else {
-      const dotIndex = classRef.lastIndexOf('.');
-      classRef = dotIndex >= 0 ? classRef.substring(0, dotIndex) : '';
+      const hashIndex = classRef.indexOf('#');
+      if (hashIndex >= 0) {
+        classRef = classRef.substring(0, hashIndex);
+      } else {
+        const dotIndex = classRef.lastIndexOf('.');
+        classRef = dotIndex >= 0 ? classRef.substring(0, dotIndex) : '';
+      }
     }
   }
 
