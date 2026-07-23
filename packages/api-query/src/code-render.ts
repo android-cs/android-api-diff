@@ -396,36 +396,6 @@ const collapseRangesByApiVersion = (
     .map(([, votes]) => chooseApiVersionVote(Array.from(votes.values())).range);
 };
 
-const hasMultipleMethodSignaturesInApiVersion = (
-  ranges: AndroidApiVersionRangeResult[],
-): boolean => {
-  const signaturesByApiVersion = new Map<number, Map<string, Set<string>>>();
-  for (const range of ranges) {
-    const methods = (range.members ?? []).filter(
-      (member): member is Extract<AndroidApiMemberResult, { kind: 'method' }> =>
-        member.kind === 'method',
-    );
-    if (methods.length === 0) continue;
-    for (const version of getApiVersionsInRange(range)) {
-      let signaturesByName = signaturesByApiVersion.get(version.apiVersion);
-      if (!signaturesByName) {
-        signaturesByName = new Map();
-        signaturesByApiVersion.set(version.apiVersion, signaturesByName);
-      }
-      for (const method of methods) {
-        let signatures = signaturesByName.get(method.name);
-        if (!signatures) {
-          signatures = new Set();
-          signaturesByName.set(method.name, signatures);
-        }
-        signatures.add(formatMemberIdentityKey(method));
-        if (signatures.size > 1) return true;
-      }
-    }
-  }
-  return false;
-};
-
 const completeDeclaration = (
   declarations: AndroidApiCodeDeclaration[],
   state: CodeDeclarationState,
@@ -645,29 +615,40 @@ const getApiRangeIndexes = (ranges: AndroidApiVersionRangeResult[]) => {
   return { firstIndexes, lastIndexes };
 };
 
+const startsAtFirstCheckedTag = (
+  range: CodeSignatureSummaryRange,
+  summary: CodeSignatureSummary,
+) => {
+  return summary.hasCheckedTagPositions
+    ? range.fromRange.fromTagPosition === 'first-checked'
+    : summary.firstIndexes.get(range.fromRange.fromApiVersion) ===
+        range.fromIndex;
+};
+
+const endsAtLastCheckedTag = (
+  range: CodeSignatureSummaryRange,
+  summary: CodeSignatureSummary,
+) => {
+  return summary.hasCheckedTagPositions
+    ? range.toRange.toTagPosition === 'last-checked'
+    : summary.lastIndexes.get(range.toRange.toApiVersion) === range.toIndex;
+};
+
 const formatSummaryRange = (
   range: CodeSignatureSummaryRange,
-  firstIndexes: Map<number, number>,
-  lastIndexes: Map<number, number>,
-  hasCheckedTagPositions: boolean,
+  summary: CodeSignatureSummary,
 ) => {
-  const { fromRange, fromIndex, toRange, toIndex } = range;
-  const startsAtFirstCheckedTag = hasCheckedTagPositions
-    ? fromRange.fromTagPosition === 'first-checked'
-    : firstIndexes.get(fromRange.fromApiVersion) === fromIndex;
-  const endsAtLastCheckedTag = hasCheckedTagPositions
-    ? toRange.toTagPosition === 'last-checked'
-    : lastIndexes.get(toRange.toApiVersion) === toIndex;
-  const fromDesc = startsAtFirstCheckedTag
+  const { fromRange, toRange } = range;
+  const startsAtFirst = startsAtFirstCheckedTag(range, summary);
+  const endsAtLast = endsAtLastCheckedTag(range, summary);
+  const fromDesc = startsAtFirst
     ? fromRange.fromVersion
     : getTagDesc(fromRange.fromTag);
-  const toDesc = endsAtLastCheckedTag
-    ? toRange.toVersion
-    : getTagDesc(toRange.toTag);
+  const toDesc = endsAtLast ? toRange.toVersion : getTagDesc(toRange.toTag);
   if (
-    hasCheckedTagPositions &&
-    startsAtFirstCheckedTag &&
-    endsAtLastCheckedTag &&
+    summary.hasCheckedTagPositions &&
+    startsAtFirst &&
+    endsAtLast &&
     fromDesc === toDesc
   ) {
     return fromDesc;
@@ -721,15 +702,18 @@ const formatSignatureSummaryComment = (
 ) => {
   if (!summary) return;
   return summary.ranges
-    .map((range) =>
-      formatSummaryRange(
-        range,
-        summary.firstIndexes,
-        summary.lastIndexes,
-        summary.hasCheckedTagPositions,
-      ),
-    )
+    .map((range) => formatSummaryRange(range, summary))
     .join(', ');
+};
+
+const needsLifecycleComment = (summary: CodeSignatureSummary | undefined) => {
+  if (!summary) return false;
+  if (summary.ranges.length !== 1) return true;
+  const range = summary.ranges[0]!;
+  return (
+    !startsAtFirstCheckedTag(range, summary) ||
+    !endsAtLastCheckedTag(range, summary)
+  );
 };
 
 const getTopLevelNameFromPath = (path: string | undefined): string => {
@@ -984,25 +968,36 @@ const getDeclarationIdentityKey = (declaration: AndroidApiCodeDeclaration) => {
   return formatMemberIdentityKey(member);
 };
 
+const supportsLifecycleAnnotations = (
+  declaration: AndroidApiCodeDeclaration,
+  signatureSummaries: Map<string, CodeSignatureSummary>,
+) => {
+  const summary = signatureSummaries.get(
+    getDeclarationIdentityKey(declaration),
+  );
+  return summary?.ranges.length === 1;
+};
+
 const formatAnnotatedDeclaration = (
   declaration: AndroidApiCodeDeclaration,
   level: number,
   inInterface: boolean,
   baselineApiVersion: number | undefined,
-  useLifecycleComments: boolean,
   signatureSummaries: Map<string, CodeSignatureSummary>,
   sourceImports: string[],
   conflictingNames: Set<string>,
 ) => {
   const lines: string[] = [];
-  if (useLifecycleComments) {
-    const comment = formatSignatureSummaryComment(
-      signatureSummaries.get(getDeclarationIdentityKey(declaration)),
-    );
+  const signatureSummary = signatureSummaries.get(
+    getDeclarationIdentityKey(declaration),
+  );
+  if (needsLifecycleComment(signatureSummary)) {
+    const comment = formatSignatureSummaryComment(signatureSummary);
     if (comment) {
       lines.push(`${indent(level)}// ${comment}`);
     }
-  } else {
+  }
+  if (supportsLifecycleAnnotations(declaration, signatureSummaries)) {
     if (
       baselineApiVersion === undefined ||
       declaration.requiresApi.apiVersion > baselineApiVersion
@@ -1253,7 +1248,7 @@ const collectImports = (
   actualClassPath: string[],
   displayClassPath: string[],
   baselineApiVersion: number | undefined,
-  useLifecycleComments: boolean,
+  signatureSummaries: Map<string, CodeSignatureSummary>,
 ): CodeImportPlan => {
   const imports = new Set<string>();
 
@@ -1270,7 +1265,7 @@ const collectImports = (
   }
 
   for (const declaration of declarations) {
-    if (!useLifecycleComments) {
+    if (supportsLifecycleAnnotations(declaration, signatureSummaries)) {
       if (needsRequiresApiAnnotation(declaration, baselineApiVersion)) {
         addImport(imports, packageName, 'android.os.Build');
         addImport(imports, packageName, 'androidx.annotation.RequiresApi');
@@ -1386,7 +1381,6 @@ const renderCode = (
   result: AndroidApiQueryResult,
   declarations: AndroidApiCodeDeclaration[],
   baselineApiVersion: number | undefined,
-  useLifecycleComments: boolean,
   signatureSummaries: Map<string, CodeSignatureSummary>,
 ): string => {
   if (declarations.length === 0) return '';
@@ -1414,7 +1408,7 @@ const renderCode = (
     actualClassPath,
     displayClassPath,
     baselineApiVersion,
-    useLifecycleComments,
+    signatureSummaries,
   );
   const lines: string[] = [];
 
@@ -1435,7 +1429,6 @@ const renderCode = (
         memberLevel,
         inInterface,
         baselineApiVersion,
-        useLifecycleComments,
         signatureSummaries,
         result.imports,
         importPlan.conflictingNames,
@@ -1454,10 +1447,10 @@ export const renderAndroidApiCode = (
   const ranges = collapseRangesByApiVersion(result.ranges);
   const baselineApiVersion = ranges[0]?.fromApiVersion;
   const lifecycleDeclarations = collectDeclarations(ranges);
-  const useLifecycleComments =
-    hasMultipleMethodSignaturesInApiVersion(result.ranges) ||
-    hasComplexLifecycle(lifecycleDeclarations);
-  const codeDeclarations = useLifecycleComments
+  const hasComplexDeclarationLifecycle = hasComplexLifecycle(
+    lifecycleDeclarations,
+  );
+  const codeDeclarations = hasComplexDeclarationLifecycle
     ? mergeDeclarationsByIdentity(lifecycleDeclarations)
     : lifecycleDeclarations;
   const declarations = applyRemapMethodNames(codeDeclarations);
@@ -1486,7 +1479,6 @@ export const renderAndroidApiCode = (
       result,
       declarations,
       baselineApiVersion,
-      useLifecycleComments,
       signatureSummaries,
     ),
   };

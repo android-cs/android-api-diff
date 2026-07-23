@@ -421,6 +421,88 @@ const baseResult = (
 
 {
   const methodA = method(
+    'String',
+    [{ name: 'callingPkg', type: 'String' }],
+    'call',
+  );
+  const methodB = method(
+    'String',
+    [
+      { name: 'callingPkg', type: 'String' },
+      { name: 'authority', type: 'String' },
+    ],
+    'call',
+  );
+  const methodC = method(
+    'String',
+    [
+      { name: 'callingPkg', type: 'String' },
+      { name: 'attributionTag', type: 'String' },
+      { name: 'authority', type: 'String' },
+    ],
+    'call',
+  );
+  const methodD = method(
+    'String',
+    [
+      { name: 'attributionSource', type: 'String' },
+      { name: 'authority', type: 'String' },
+      { name: 'method', type: 'String' },
+      { name: 'arg', type: 'String' },
+    ],
+    'call',
+  );
+  const result = renderAndroidApiCode(
+    baseResult(
+      'IContentProvider.call',
+      'core/java/android/content/IContentProvider.java',
+      ['IContentProvider', 'call'],
+      [
+        {
+          ...range('8', 'O', 26, 'android-8.0.0_r1', [methodA]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+        {
+          ...range('10', 'Q', 29, 'android-10.0.0_r1', [methodA, methodB]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+        {
+          ...range('11', 'R', 30, 'android-11.0.0_r1', [methodA, methodC]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+        {
+          ...range('12', 'S', 31, 'android-12.0.0_r1', [methodA, methodD]),
+          fromTagPosition: 'first-checked',
+          toTagPosition: 'last-checked',
+        },
+      ],
+      [{ name: 'IContentProvider', kind: 'interface' }],
+    ),
+  );
+
+  assert.match(result.code, /import android\.os\.Build;/);
+  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
+  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
+  assert.doesNotMatch(result.code, /^\s*\/\/ /m);
+  assert.match(
+    result.code,
+    /@RequiresApi\(Build\.VERSION_CODES\.Q\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.R\)\n\s+String call\(String callingPkg, String authority\);/,
+  );
+  assert.match(
+    result.code,
+    /@RequiresApi\(Build\.VERSION_CODES\.R\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.S\)\n\s+String call\(String callingPkg, String attributionTag, String authority\);/,
+  );
+  assert.match(
+    result.code,
+    /@RequiresApi\(Build\.VERSION_CODES\.S\)\n\s+String call\(String attributionSource, String authority, String method, String arg\);/,
+  );
+}
+
+{
+  const methodA = method(
     'List<UserInfo>',
     [{ name: 'excludeDying', type: 'boolean' }],
     'getUsers',
@@ -509,10 +591,8 @@ const baseResult = (
   );
 
   assert.equal(result.declarations.length, 2);
-  assert.doesNotMatch(result.code, /@RequiresApi/);
-  assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
-  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
-  assert.doesNotMatch(result.code, /androidx\.annotation\.DeprecatedSinceApi/);
+  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
+  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
   assert.match(result.code, /import android\.content\.pm\.UserInfo;/);
   assert.match(
     result.code,
@@ -524,7 +604,7 @@ const baseResult = (
   );
   assert.match(
     result.code,
-    /\/\/ 11 - 16\.0\.0_r2\n\s+List<UserInfo> getUsers\(boolean excludePartial, boolean excludeDying, boolean excludePreCreated\);/,
+    /\/\/ 11 - 16\.0\.0_r2\n\s+@RequiresApi\(Build\.VERSION_CODES\.R\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.BAKLAVA\)\n\s+List<UserInfo> getUsers\(boolean excludePartial, boolean excludeDying, boolean excludePreCreated\);/,
   );
   assert.equal(
     (result.code.match(/getUsers\(boolean excludeDying\)/g) ?? []).length,
@@ -582,14 +662,12 @@ const baseResult = (
   assert.match(result.code, /import android\.os\.IBinder;/);
   assert.match(result.code, /import android\.os\.IInterface;/);
   assert.match(result.code, /import java\.util\.List;/);
-  assert.doesNotMatch(result.code, /@RequiresApi/);
-  assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
-  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
-  assert.doesNotMatch(result.code, /androidx\.annotation\.DeprecatedSinceApi/);
-  assert.doesNotMatch(result.code, /import android\.os\.Build;/);
+  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
+  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
+  assert.match(result.code, /import android\.os\.Build;/);
   assert.match(
     result.code,
-    /\/\/ 10\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
+    /@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.S\)\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
   );
   assert.match(
     result.code,
@@ -597,7 +675,7 @@ const baseResult = (
   );
   assert.match(
     result.code,
-    /\/\/ 13 - 13\.0\.0_r2\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
+    /\/\/ 13 - 13\.0\.0_r2\n\s+@RequiresApi\(Build\.VERSION_CODES\.TIRAMISU\)\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
   );
 }
 
