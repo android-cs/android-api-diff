@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
 - Replace the Java/AIDL struct-list parser APIs with file-level parsers that
   return package, filtered imports, and structs.
