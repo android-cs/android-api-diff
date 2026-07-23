@@ -1,4 +1,4 @@
-import { getAIDLStructList } from '../src/index.ts';
+import { parseAIDLFile } from '../src/index.ts';
 import { getFileText } from './cache.ts';
 
 const baseUrl =
@@ -31,5 +31,5 @@ const urls = [
 for (const name of urls) {
   console.log('Parsing', name);
   const input = await getFileText(baseUrl + name + '?format=TEXT');
-  getAIDLStructList(input);
+  parseAIDLFile(input);
 }

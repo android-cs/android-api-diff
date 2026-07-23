@@ -1,6 +1,7 @@
-export { getJavaStructList } from './java/index.ts';
-export { getAIDLStructList } from './aidl/index.ts';
+export { parseJavaFile } from './java/index.ts';
+export { parseAIDLFile } from './aidl/index.ts';
 export type {
+  ApiFile,
   ClassConstructorMember,
   ClassConstantMember,
   ClassFieldMember,

@@ -1,5 +1,5 @@
-import type { ClassMember, ClassStruct } from '@android-cs/api-parser';
-import { getAIDLStructList, getJavaStructList } from '@android-cs/api-parser';
+import type { ApiFile, ClassMember, ClassStruct } from '@android-cs/api-parser';
+import { parseAIDLFile, parseJavaFile } from '@android-cs/api-parser';
 import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
@@ -22,8 +22,8 @@ import type {
 } from './types.ts';
 import { getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v9';
-export const QUERY_CACHE_VERSION = 'query:v20';
+export const STRUCT_CACHE_VERSION = 'struct:v10';
+export const QUERY_CACHE_VERSION = 'query:v21';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -34,6 +34,8 @@ interface InternalAndroidApiVersionResult {
   missingReason?: AndroidApiMissingReason;
   signature?: string;
   members?: AndroidApiMemberResult[];
+  package: string;
+  imports: string[];
   typePath?: AndroidApiResolvedType[];
 }
 
@@ -88,14 +90,18 @@ const getStructsByTaggedFile = async (
     taggedFilePath,
     signal,
   );
-  let list: ClassStruct[] = [];
+  let file: ApiFile = {
+    package: '',
+    imports: [],
+    structs: [],
+  };
   if (!sourceFileNotFound && taggedFilePath.endsWith('.aidl')) {
-    list = getAIDLStructList(text);
+    file = parseAIDLFile(text);
   } else if (!sourceFileNotFound && taggedFilePath.endsWith('.java')) {
-    list = getJavaStructList(text);
+    file = parseJavaFile(text);
   }
   const result: AndroidApiStructCacheEntry = {
-    structs: list,
+    file,
     sourceFileNotFound,
   };
   await runtime.structCache?.set(structKey, result);
@@ -124,6 +130,7 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
       kind: member.kind,
       name: member.name,
       type: member.type,
+      imports: [...member.imports],
       ...(member.isAbstract ? { isAbstract: true } : {}),
       returnType: member.returnType,
       ...(member.returnNullability
@@ -137,6 +144,7 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
       kind: member.kind,
       name: member.name,
       type: member.type,
+      imports: [...member.imports],
       parameters: cloneParameters(member),
     };
   }
@@ -144,6 +152,8 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
     kind: member.kind,
     name: member.name,
     type: member.type,
+    imports: [...member.imports],
+    ...(member.isStatic ? { isStatic: true } : {}),
     ...(member.fieldNullability
       ? { fieldNullability: member.fieldNullability }
       : {}),
@@ -178,6 +188,8 @@ const toSemanticMember = (member: AndroidApiMemberResult) => {
     kind: member.kind,
     name: member.name,
     type: member.type,
+    imports: member.imports,
+    ...('isStatic' in member && member.isStatic ? { isStatic: true } : {}),
     ...('returnType' in member ? { returnType: member.returnType } : {}),
     ...('isAbstract' in member && member.isAbstract
       ? { isAbstract: true }
@@ -205,6 +217,41 @@ const toSemanticKey = (version: InternalAndroidApiVersionResult): string => {
     missingReason: version.missingReason,
     members: version.members?.map(toSemanticMember),
   });
+};
+
+const normalizeVersionImports = (
+  versions: InternalAndroidApiVersionResult[],
+): string[] => {
+  const usedImports = new Set<string>();
+  for (const version of versions) {
+    for (const member of version.members ?? []) {
+      for (const index of member.imports) {
+        const value = version.imports[index];
+        if (value === undefined) {
+          throw new Error(`Invalid member import index: ${index}`);
+        }
+        usedImports.add(value);
+      }
+    }
+  }
+  const imports = Array.from(usedImports).sort();
+  const importIndexes = new Map(
+    imports.map((value, index) => [value, index] as const),
+  );
+  for (const version of versions) {
+    for (const member of version.members ?? []) {
+      member.imports = Array.from(
+        new Set(
+          member.imports.map((index) => {
+            const value = version.imports[index]!;
+            return importIndexes.get(value)!;
+          }),
+        ),
+      ).sort((a, b) => a - b);
+    }
+    version.imports = imports;
+  }
+  return imports;
 };
 
 const toRange = (
@@ -325,6 +372,8 @@ export const queryAndroidApi = async (
     const result: AndroidApiQueryResult = {
       apiName: options.apiName,
       normalizedApiName,
+      package: '',
+      imports: [],
       summary: {
         checkedTags: 0,
         foundTags: 0,
@@ -363,7 +412,7 @@ export const queryAndroidApi = async (
         limit(async (): Promise<InternalAndroidApiVersionResult> => {
           options.signal?.throwIfAborted();
           const taggedFilePath = `${tag}/${search.filePath}`;
-          const { structs, sourceFileNotFound } = await getStructsByTaggedFile(
+          const { file, sourceFileNotFound } = await getStructsByTaggedFile(
             runtime,
             taggedFilePath,
             options.signal,
@@ -379,7 +428,7 @@ export const queryAndroidApi = async (
               targetFound = true;
             } else if (search.targetKind === 'class') {
               const foundTypePath = findStructPathByPath(
-                structs,
+                file.structs,
                 search.targetPaths,
               );
               if (foundTypePath) {
@@ -389,7 +438,7 @@ export const queryAndroidApi = async (
             } else {
               const propName = search.targetPaths.at(-1);
               const foundTypePath = findStructPathByPath(
-                structs,
+                file.structs,
                 search.targetPaths.slice(0, -1),
               );
               const foundTarget = foundTypePath?.at(-1);
@@ -429,6 +478,8 @@ export const queryAndroidApi = async (
             alias: version.alias,
             apiVersion: version.apiVersion,
             tag,
+            package: file.package,
+            imports: file.imports,
             ...(missingReason ? { missingReason } : {}),
             ...(signature ? { signature } : {}),
             members,
@@ -446,6 +497,7 @@ export const queryAndroidApi = async (
     )
   ).sort(compareVersionResults);
 
+  const imports = normalizeVersionImports(versions);
   const foundVersions = versions.filter((v) => !v.missingReason);
   const ranges = compactVersionResults(versions);
   const signatures = Array.from(
@@ -455,6 +507,8 @@ export const queryAndroidApi = async (
   const result: AndroidApiQueryResult = {
     apiName: options.apiName,
     normalizedApiName,
+    package: versions.findLast((version) => version.package)?.package ?? '',
+    imports,
     source: resolution.source,
     resolvedTarget: {
       ...resolution.resolvedTarget,

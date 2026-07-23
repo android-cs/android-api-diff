@@ -45,6 +45,11 @@ interface CodeSignatureSummaryRange {
   toIndex: number;
 }
 
+interface CodeImportPlan {
+  imports: string[];
+  conflictingNames: Set<string>;
+}
+
 const primitiveTypeNames = new Set([
   'boolean',
   'byte',
@@ -57,44 +62,16 @@ const primitiveTypeNames = new Set([
   'void',
 ]);
 
-const importBySimpleTypeName = new Map([
-  ['ArrayList', 'java.util.ArrayList'],
-  ['Collection', 'java.util.Collection'],
-  ['HashMap', 'java.util.HashMap'],
-  ['HashSet', 'java.util.HashSet'],
+const aidlImportBySimpleTypeName = new Map([
   ['List', 'java.util.List'],
   ['Map', 'java.util.Map'],
-  ['Set', 'java.util.Set'],
-  ['ArrayMap', 'android.util.ArrayMap'],
-  ['ArraySet', 'android.util.ArraySet'],
-  ['Pair', 'android.util.Pair'],
-  ['SparseArray', 'android.util.SparseArray'],
-  ['SparseBooleanArray', 'android.util.SparseBooleanArray'],
-  ['SparseIntArray', 'android.util.SparseIntArray'],
-  ['SparseLongArray', 'android.util.SparseLongArray'],
-  ['Binder', 'android.os.Binder'],
-  ['Bundle', 'android.os.Bundle'],
-  ['Handler', 'android.os.Handler'],
-  ['IBinder', 'android.os.IBinder'],
-  ['IInterface', 'android.os.IInterface'],
-  ['Looper', 'android.os.Looper'],
-  ['ParcelFileDescriptor', 'android.os.ParcelFileDescriptor'],
-  ['RemoteException', 'android.os.RemoteException'],
-  ['UserHandle', 'android.os.UserHandle'],
-  ['ComponentName', 'android.content.ComponentName'],
-  ['Context', 'android.content.Context'],
-  ['Intent', 'android.content.Intent'],
-  ['ApplicationInfo', 'android.content.pm.ApplicationInfo'],
-  ['PackageInfo', 'android.content.pm.PackageInfo'],
-  ['ParceledListSlice', 'android.content.pm.ParceledListSlice'],
-  ['ResolveInfo', 'android.content.pm.ResolveInfo'],
-  ['UserInfo', 'android.content.pm.UserInfo'],
-  ['Rect', 'android.graphics.Rect'],
 ]);
 
 const javaIdentifierReg = /^[A-Za-z_$][\w$]*$/;
 const sourceFileReg = /\.(aidl|java)$/i;
 const androidTagPrefix = 'android-';
+const importPrefixReg = /^static\s+/;
+const qualifiedTypeReg = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g;
 
 const indent = (level: number) => '    '.repeat(level);
 
@@ -108,9 +85,15 @@ const toStartVersionInfo = (
   };
 };
 
-const getVersionCode = (version: AndroidVersionInfo): string => {
+const getVersionCode = (
+  version: AndroidVersionInfo,
+  conflictingNames: Set<string>,
+): string => {
+  const buildName = conflictingNames.has('Build')
+    ? 'android.os.Build'
+    : 'Build';
   return version.alias
-    ? `Build.VERSION_CODES.${version.alias}`
+    ? `${buildName}.VERSION_CODES.${version.alias}`
     : String(version.apiVersion);
 };
 
@@ -125,18 +108,42 @@ const getNullabilityAnnotationName = (
 const formatAnnotatedType = (
   type: string,
   nullability: Nullability | undefined,
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ): string => {
   const annotation = getNullabilityAnnotationName(type, nullability);
-  return `${annotation ? `@${annotation} ` : ''}${type}`;
+  const annotationName = annotation
+    ? getRenderedTypeName(
+        annotation,
+        `android.annotation.${annotation}`,
+        member,
+        sourceImports,
+        conflictingNames,
+      )
+    : undefined;
+  return `${annotationName ? `@${annotationName} ` : ''}${qualifyTypeText(
+    type,
+    member,
+    sourceImports,
+    conflictingNames,
+  )}`;
 };
 
 const formatParameter = (
   parameter: ClassMemberParam,
   index: number,
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ): string => {
-  return `${formatAnnotatedType(parameter.type, parameter.nullability)} ${
-    parameter.name || `arg${index}`
-  }`;
+  return `${formatAnnotatedType(
+    parameter.type,
+    parameter.nullability,
+    member,
+    sourceImports,
+    conflictingNames,
+  )} ${parameter.name || `arg${index}`}`;
 };
 
 const formatNullableSummaryType = (
@@ -173,11 +180,13 @@ const formatMemberSignature = (member: AndroidApiMemberResult): string => {
       .join(',');
     return `${member.kind}:${member.name}(${parameters}):${
       'returnType' in member ? member.returnType : member.name
-    }:${'returnNullability' in member ? (member.returnNullability ?? '') : ''}`;
+    }:${'returnNullability' in member ? (member.returnNullability ?? '') : ''}:${member.imports.join(
+      ',',
+    )}`;
   }
   return `${member.kind}:${member.name}:${member.type}:${
     member.fieldNullability ?? ''
-  }`;
+  }:${member.isStatic ? 'static' : ''}:${member.imports.join(',')}`;
 };
 
 const formatMemberIdentityKey = (member: AndroidApiMemberResult): string => {
@@ -187,9 +196,11 @@ const formatMemberIdentityKey = (member: AndroidApiMemberResult): string => {
       .join(',');
     return `${member.kind}:${member.name}(${parameters}):${
       'returnType' in member ? member.returnType : member.name
-    }`;
+    }:${member.imports.join(',')}`;
   }
-  return `${member.kind}:${member.name}:${member.type}`;
+  return `${member.kind}:${member.name}:${member.type}:${
+    member.isStatic ? 'static' : ''
+  }:${member.imports.join(',')}`;
 };
 
 const sortMembers = (members: AndroidApiMemberResult[]) => {
@@ -222,6 +233,7 @@ export const toAndroidApiMemberResult = (
       kind: member.kind,
       name: member.name,
       type: member.type,
+      imports: [...member.imports],
       ...(member.isAbstract ? { isAbstract: true } : {}),
       returnType: member.returnType,
       ...(member.returnNullability
@@ -235,6 +247,7 @@ export const toAndroidApiMemberResult = (
       kind: member.kind,
       name: member.name,
       type: member.type,
+      imports: [...member.imports],
       parameters: cloneParameters(member),
     };
   }
@@ -242,6 +255,8 @@ export const toAndroidApiMemberResult = (
     kind: member.kind,
     name: member.name,
     type: member.type,
+    imports: [...member.imports],
+    ...(member.isStatic ? { isStatic: true } : {}),
     ...(member.fieldNullability
       ? { fieldNullability: member.fieldNullability }
       : {}),
@@ -847,27 +862,57 @@ const formatMethodDeclaration = (
   member: Extract<AndroidApiMemberResult, { kind: 'method' }>,
   level: number,
   inInterface: boolean,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ) => {
-  const parameters = member.parameters.map(formatParameter).join(', ');
+  const parameters = member.parameters
+    .map((parameter, index) =>
+      formatParameter(
+        parameter,
+        index,
+        member,
+        sourceImports,
+        conflictingNames,
+      ),
+    )
+    .join(', ');
   const isAbstract = inInterface || member.isAbstract;
   const prefix = inInterface
     ? ''
     : member.isAbstract
       ? 'public abstract '
       : 'public ';
+  const body = isAbstract
+    ? ';'
+    : member.returnType === 'void'
+      ? ' {}'
+      : ' { throw new RuntimeException(); }';
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.returnType,
     member.returnNullability,
-  )} ${member.name}(${parameters})${
-    isAbstract ? ';' : ' { throw new RuntimeException(); }'
-  }`;
+    member,
+    sourceImports,
+    conflictingNames,
+  )} ${member.name}(${parameters})${body}`;
 };
 
 const formatConstructorDeclaration = (
   member: Extract<AndroidApiMemberResult, { kind: 'constructor' }>,
   level: number,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ) => {
-  const parameters = member.parameters.map(formatParameter).join(', ');
+  const parameters = member.parameters
+    .map((parameter, index) =>
+      formatParameter(
+        parameter,
+        index,
+        member,
+        sourceImports,
+        conflictingNames,
+      ),
+    )
+    .join(', ');
   return `${indent(level)}public ${member.name}(${parameters}) { throw new RuntimeException(); }`;
 };
 
@@ -875,11 +920,23 @@ const formatFieldDeclaration = (
   member: Extract<AndroidApiMemberResult, { kind: 'field' | 'constant' }>,
   level: number,
   inInterface: boolean,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ) => {
-  const prefix = inInterface ? '' : 'public ';
+  const prefix =
+    member.kind === 'constant' || member.isStatic
+      ? inInterface
+        ? 'static '
+        : 'public static '
+      : inInterface
+        ? ''
+        : 'public ';
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.type,
     member.fieldNullability,
+    member,
+    sourceImports,
+    conflictingNames,
   )} ${member.name};`;
 };
 
@@ -887,14 +944,33 @@ const formatMemberDeclaration = (
   member: AndroidApiMemberResult,
   level: number,
   inInterface: boolean,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ) => {
   if (member.kind === 'method') {
-    return formatMethodDeclaration(member, level, inInterface);
+    return formatMethodDeclaration(
+      member,
+      level,
+      inInterface,
+      sourceImports,
+      conflictingNames,
+    );
   }
   if (member.kind === 'constructor') {
-    return formatConstructorDeclaration(member, level);
+    return formatConstructorDeclaration(
+      member,
+      level,
+      sourceImports,
+      conflictingNames,
+    );
   }
-  return formatFieldDeclaration(member, level, inInterface);
+  return formatFieldDeclaration(
+    member,
+    level,
+    inInterface,
+    sourceImports,
+    conflictingNames,
+  );
 };
 
 const getDeclarationIdentityKey = (declaration: AndroidApiCodeDeclaration) => {
@@ -915,6 +991,8 @@ const formatAnnotatedDeclaration = (
   baselineApiVersion: number | undefined,
   useLifecycleComments: boolean,
   signatureSummaries: Map<string, CodeSignatureSummary>,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
 ) => {
   const lines: string[] = [];
   if (useLifecycleComments) {
@@ -930,23 +1008,44 @@ const formatAnnotatedDeclaration = (
       declaration.requiresApi.apiVersion > baselineApiVersion
     ) {
       lines.push(
-        `${indent(level)}@RequiresApi(${getVersionCode(declaration.requiresApi)})`,
+        `${indent(level)}@${getGeneratedName(
+          'RequiresApi',
+          'androidx.annotation.RequiresApi',
+          conflictingNames,
+        )}(${getVersionCode(declaration.requiresApi, conflictingNames)})`,
       );
     }
     if (declaration.deprecatedSinceApi) {
       lines.push(
-        `${indent(level)}@DeprecatedSinceApi(api = ${getVersionCode(
+        `${indent(level)}@${getGeneratedName(
+          'DeprecatedSinceApi',
+          'androidx.annotation.DeprecatedSinceApi',
+          conflictingNames,
+        )}(api = ${getVersionCode(
           declaration.deprecatedSinceApi,
+          conflictingNames,
         )})`,
       );
     }
   }
   if (declaration.remapMethodName) {
     lines.push(
-      `${indent(level)}@RemapMethod("${declaration.remapMethodName}")`,
+      `${indent(level)}@${getGeneratedName(
+        'RemapMethod',
+        'li.songe.remap.RemapMethod',
+        conflictingNames,
+      )}("${declaration.remapMethodName}")`,
     );
   }
-  lines.push(formatMemberDeclaration(declaration.member, level, inInterface));
+  lines.push(
+    formatMemberDeclaration(
+      declaration.member,
+      level,
+      inInterface,
+      sourceImports,
+      conflictingNames,
+    ),
+  );
   return lines.join('\n');
 };
 
@@ -959,13 +1058,91 @@ const getClassRemapLiteral = (
   return `${actualClassPath.slice(0, index + 1).join('.')}.class`;
 };
 
+const getImportTarget = (importName: string) => {
+  return importName.replace(importPrefixReg, '');
+};
+
+const getImportSimpleName = (importName: string): string | undefined => {
+  const target = getImportTarget(importName);
+  if (target.endsWith('.*')) return;
+  return target.split('.').at(-1);
+};
+
+const getMemberImportedType = (
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  simpleName: string,
+): string | undefined => {
+  for (const index of member.imports) {
+    const importName = sourceImports[index];
+    if (importName === undefined) {
+      throw new Error(`Invalid member import index: ${index}`);
+    }
+    if (getImportSimpleName(importName) === simpleName) {
+      return getImportTarget(importName);
+    }
+  }
+};
+
+const getGeneratedName = (
+  simpleName: string,
+  qualifiedName: string,
+  conflictingNames: Set<string>,
+) => {
+  return conflictingNames.has(simpleName) ? qualifiedName : simpleName;
+};
+
+const getRenderedTypeName = (
+  simpleName: string,
+  fallbackQualifiedName: string,
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
+) => {
+  if (!conflictingNames.has(simpleName)) return simpleName;
+  return (
+    getMemberImportedType(member, sourceImports, simpleName) ??
+    fallbackQualifiedName
+  );
+};
+
+const qualifyTypeText = (
+  type: string,
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  conflictingNames: Set<string>,
+) => {
+  if (conflictingNames.size === 0) return type;
+  return type.replace(qualifiedTypeReg, (qualifiedName) => {
+    const simpleName = qualifiedName.split('.')[0]!;
+    if (!conflictingNames.has(simpleName)) return qualifiedName;
+    const importedType = getMemberImportedType(
+      member,
+      sourceImports,
+      simpleName,
+    );
+    if (!importedType) return qualifiedName;
+    return `${importedType}${qualifiedName.substring(simpleName.length)}`;
+  });
+};
+
 const addImport = (
   imports: Set<string>,
   packageName: string,
-  qualifiedName: string,
+  importName: string,
 ) => {
-  if (packageName && qualifiedName.startsWith(`${packageName}.`)) return;
-  imports.add(qualifiedName);
+  const qualifiedName = getImportTarget(importName);
+  const importPackage = qualifiedName.endsWith('.*')
+    ? qualifiedName.slice(0, -2)
+    : qualifiedName.substring(0, qualifiedName.lastIndexOf('.'));
+  if (
+    !importName.startsWith('static ') &&
+    (importPackage === 'java.lang' ||
+      (packageName && importPackage === packageName))
+  ) {
+    return;
+  }
+  imports.add(importName);
 };
 
 const hasRemappedClass = (
@@ -1021,10 +1198,11 @@ const getMemberTypeNullabilities = (
 };
 
 const getImportGroupIndex = (item: string) => {
-  if (item.startsWith('android.')) return 0;
-  if (item.startsWith('androidx.')) return 1;
-  if (item.startsWith('java.') || item.startsWith('javax.')) return 2;
-  if (item.startsWith('li.songe.')) return 3;
+  const target = item.replace(/^static\s+/, '');
+  if (target.startsWith('android.')) return 0;
+  if (target.startsWith('androidx.')) return 1;
+  if (target.startsWith('java.') || target.startsWith('javax.')) return 2;
+  if (target.startsWith('li.songe.')) return 3;
   return 4;
 };
 
@@ -1035,15 +1213,48 @@ const sortImports = (imports: Set<string>) => {
   );
 };
 
+const resolveImportConflicts = (imports: Set<string>): CodeImportPlan => {
+  const targetsBySimpleName = new Map<string, Set<string>>();
+  for (const importName of imports) {
+    const simpleName = getImportSimpleName(importName);
+    if (!simpleName) continue;
+    let targets = targetsBySimpleName.get(simpleName);
+    if (!targets) {
+      targets = new Set();
+      targetsBySimpleName.set(simpleName, targets);
+    }
+    targets.add(getImportTarget(importName));
+  }
+  const conflictingNames = new Set(
+    Array.from(targetsBySimpleName)
+      .filter(([, targets]) => targets.size > 1)
+      .map(([simpleName]) => simpleName),
+  );
+  if (conflictingNames.size > 0) {
+    for (const importName of imports) {
+      const simpleName = getImportSimpleName(importName);
+      if (simpleName && conflictingNames.has(simpleName)) {
+        imports.delete(importName);
+      }
+    }
+  }
+  return {
+    imports: sortImports(imports),
+    conflictingNames,
+  };
+};
+
 const collectImports = (
   declarations: AndroidApiCodeDeclaration[],
+  sourceImports: string[],
   packageName: string,
+  aidlSource: boolean,
   aidlInterface: boolean,
   actualClassPath: string[],
   displayClassPath: string[],
   baselineApiVersion: number | undefined,
   useLifecycleComments: boolean,
-): string[] => {
+): CodeImportPlan => {
   const imports = new Set<string>();
 
   if (aidlInterface) {
@@ -1074,6 +1285,13 @@ const collectImports = (
       }
     }
     const member = declaration.member;
+    for (const index of member.imports) {
+      const importName = sourceImports[index];
+      if (importName === undefined) {
+        throw new Error(`Invalid member import index: ${index}`);
+      }
+      addImport(imports, packageName, importName);
+    }
     for (const item of getMemberTypeNullabilities(member)) {
       const annotation = getNullabilityAnnotationName(
         item.type,
@@ -1083,13 +1301,15 @@ const collectImports = (
         addImport(imports, packageName, `android.annotation.${annotation}`);
       }
     }
-    for (const typeName of collectMemberTypeNames(member)) {
-      const qualifiedName = importBySimpleTypeName.get(typeName);
-      if (qualifiedName) addImport(imports, packageName, qualifiedName);
+    if (aidlSource) {
+      for (const typeName of collectMemberTypeNames(member)) {
+        const qualifiedName = aidlImportBySimpleTypeName.get(typeName);
+        if (qualifiedName) addImport(imports, packageName, qualifiedName);
+      }
     }
   }
 
-  return sortImports(imports);
+  return resolveImportConflicts(imports);
 };
 
 const pushFileHeader = (
@@ -1171,7 +1391,8 @@ const renderCode = (
 ): string => {
   if (declarations.length === 0) return '';
 
-  const packageName = getPackageNameFromPath(result.source?.path);
+  const packageName =
+    result.package || getPackageNameFromPath(result.source?.path);
   const actualClassPath = getActualClassPath(result);
   const displayClassPath = getDisplayClassPath(
     result,
@@ -1184,9 +1405,11 @@ const renderCode = (
     !!result.source?.path.endsWith('.aidl') &&
     typePath[0]?.kind === 'interface';
   const memberLevel = displayClassPath.length;
-  const imports = collectImports(
+  const importPlan = collectImports(
     declarations,
+    result.imports,
     packageName,
+    !!result.source?.path.endsWith('.aidl'),
     includeAidlStub,
     actualClassPath,
     displayClassPath,
@@ -1195,7 +1418,7 @@ const renderCode = (
   );
   const lines: string[] = [];
 
-  pushFileHeader(lines, packageName, imports);
+  pushFileHeader(lines, packageName, importPlan.imports);
   pushClassOpenings(
     lines,
     actualClassPath,
@@ -1214,6 +1437,8 @@ const renderCode = (
         baselineApiVersion,
         useLifecycleComments,
         signatureSummaries,
+        result.imports,
+        importPlan.conflictingNames,
       ),
     );
   });
@@ -1240,6 +1465,8 @@ export const renderAndroidApiCode = (
   return {
     apiName: result.apiName,
     normalizedApiName: result.normalizedApiName,
+    package: result.package,
+    imports: result.imports,
     ...(result.source ? { source: result.source } : {}),
     ...(result.resolvedTarget ? { resolvedTarget: result.resolvedTarget } : {}),
     summary: {

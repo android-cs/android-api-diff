@@ -1,9 +1,9 @@
 import {
   check404File,
-  getOrSetStructCache,
+  getOrSetApiFileCache,
   persistentFetch,
 } from '@/utils/cache';
-import type { ClassStruct } from '@android-cs/api-parser';
+import type { ApiFile } from '@android-cs/api-parser';
 import {
   loadAidlJavaFiles,
   searchFilePathByRefName as searchFilePathByRefNameCore,
@@ -23,47 +23,55 @@ export {
 // preload parser
 setTimeout(async () => androidApiParser, 3000);
 
-export const fileStructsMap = shallowReactive<Record<string, ClassStruct[]>>(
-  {},
-);
+export const fileApiMap = shallowReactive<Record<string, ApiFile>>({});
 
 export const notFoundFileMap = shallowReactive<Record<string, boolean>>({});
 
 const limit = pLimit(5);
-export const pullStructsByUrl = async (
+export const pullApiFileByUrl = async (
   filePath: string,
   signal: AbortController,
-): Promise<ClassStruct[]> => {
-  const temp = fileStructsMap[filePath];
+): Promise<ApiFile> => {
+  const temp = fileApiMap[filePath];
   if (temp) return temp;
   const url = getMirrorContentUrl(filePath);
-  const list = await getOrSetStructCache(filePath, async () => {
+  const file = await getOrSetApiFileCache(filePath, async () => {
     const text = await limit(() => {
       if (signal.signal.aborted) {
         throw new Error('aborted');
       }
       return persistentFetch(url);
     });
-    let list: ClassStruct[] = [];
+    let file: ApiFile = {
+      package: '',
+      imports: [],
+      structs: [],
+    };
     if (text.startsWith('404:')) {
     } else if (url.endsWith('.aidl')) {
-      list = androidApiParser.getAIDLStructList(text);
+      file = androidApiParser.parseAIDLFile(text);
     } else if (url.endsWith('.java')) {
-      list = androidApiParser.getJavaStructList(text);
+      file = androidApiParser.parseJavaFile(text);
     } else {
       // unsupported file type
     }
-    return list;
+    return file;
   }).catch(() => {});
-  if (!list) return emptyArray;
-  if (list.length === 0) {
+  if (!file) {
+    return {
+      package: '',
+      imports: [],
+      structs: emptyArray,
+    };
+  }
+  if (file.structs.length === 0) {
     const is404 = await check404File(url);
     if (is404) {
       notFoundFileMap[filePath] = is404;
     }
   }
-  fileStructsMap[filePath] = list;
-  return list;
+  fileApiMap[filePath] = file;
+  return file;
 };
 
 setTimeout(updateStorageEstimate);

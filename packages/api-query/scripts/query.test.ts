@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { renderAndroidApiCode } from '../src/code-render.ts';
 import { loadAndroidVersionList } from '../src/data.ts';
 import { queryAndroidApi } from '../src/query.ts';
 import { searchFilePathByRefName } from '../src/resolve.ts';
@@ -427,6 +428,50 @@ public interface IExample {
   assert.equal(fetchedUrls.length, 1);
   assert.deepEqual([...cachedTexts.keys()], [cacheKey]);
   assert.equal(cachedTexts.get(cacheKey), source);
+}
+
+{
+  const importResult = await queryAndroidApi(
+    {
+      loadAidlJavaFiles: async () => [
+        'core/java/android/example/IImportExample.java',
+      ],
+      loadAndroidVersionList: async () => [
+        {
+          version: '14',
+          alias: 'UPSIDE_DOWN_CAKE',
+          apiVersion: 34,
+          tags: ['android-14.0.0_r1'],
+          futureTags: [],
+        },
+      ],
+      fetchText: async () => `
+package android.example;
+
+import java.util.List;
+import sample.model.A;
+import sample.model.Unused;
+
+public interface IImportExample {
+  List<A> load(A value);
+}
+`,
+    },
+    {
+      apiName: 'IImportExample.load',
+      minSdk: 34,
+      concurrency: 1,
+    },
+  );
+  assert.equal(importResult.package, 'android.example');
+  assert.deepEqual(importResult.imports, ['java.util.List', 'sample.model.A']);
+  assert.deepEqual(importResult.ranges[0]?.members?.[0]?.imports, [0, 1]);
+  const code = renderAndroidApiCode(importResult).code;
+  assert.match(code, /^package android\.example;/);
+  assert.match(code, /import java\.util\.List;/);
+  assert.match(code, /import sample\.model\.A;/);
+  assert.doesNotMatch(code, /sample\.model\.Unused/);
+  assert.match(code, /List<A> load\(A value\);/);
 }
 
 {

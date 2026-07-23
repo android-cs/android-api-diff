@@ -1,6 +1,6 @@
 import type {
+  ApiFile,
   ClassMemberParam,
-  ClassStruct,
   Nullability,
 } from '@android-cs/api-parser';
 
@@ -97,12 +97,15 @@ export type AndroidApiMemberResult =
       kind: 'field' | 'constant';
       name: string;
       type: string;
+      imports: number[];
+      isStatic?: true;
       fieldNullability?: Nullability;
     }
   | {
       kind: 'method';
       name: string;
       type: string;
+      imports: number[];
       isAbstract?: true;
       returnType: string;
       returnNullability?: Nullability;
@@ -112,11 +115,12 @@ export type AndroidApiMemberResult =
       kind: 'constructor';
       name: string;
       type: string;
+      imports: number[];
       parameters: ClassMemberParam[];
     };
 
 export interface AndroidApiStructCacheEntry {
-  structs: ClassStruct[];
+  file: ApiFile;
   sourceFileNotFound: boolean;
 }
 
@@ -142,6 +146,8 @@ export interface AndroidApiVersionRangeResult {
 export interface AndroidApiQueryResult {
   apiName: string;
   normalizedApiName: string;
+  package: string;
+  imports: string[];
   source?: AndroidApiSourceLocation;
   resolvedTarget?: AndroidApiResolvedTarget;
   summary: {
@@ -168,6 +174,8 @@ export interface AndroidApiCodeDeclaration {
 export interface AndroidApiCodeResult {
   apiName: string;
   normalizedApiName: string;
+  package: string;
+  imports: string[];
   source?: AndroidApiSourceLocation;
   resolvedTarget?: AndroidApiResolvedTarget;
   summary: {

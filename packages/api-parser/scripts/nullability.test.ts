@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getAIDLStructList, getJavaStructList } from '../src/index.ts';
+import { parseAIDLFile, parseJavaFile } from '../src/index.ts';
 
 const findMember = <T extends { name: string }>(members: T[], name: string) => {
   const member = members.find((item) => item.name === name);
@@ -7,7 +7,7 @@ const findMember = <T extends { name: string }>(members: T[], name: string) => {
   return member;
 };
 
-const javaStructs = getJavaStructList(`
+const javaFile = parseJavaFile(`
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 
@@ -40,6 +40,12 @@ interface ExampleApi {
   @Nullable String findName(@NonNull String key);
 }
 `);
+const javaStructs = javaFile.structs;
+assert.equal(javaFile.package, '');
+assert.deepEqual(javaFile.imports, [
+  'android.annotation.NonNull',
+  'android.annotation.Nullable',
+]);
 
 const javaExample = javaStructs.find((item) => item.name === 'Example');
 assert.ok(javaExample);
@@ -93,6 +99,7 @@ assert.equal(setName.kind, 'method');
 assert.equal(setName.returnType, 'void');
 assert.equal(setName.returnNullability, 'non-null');
 assert.equal(setName.parameters[0]?.nullability, 'nullable');
+assert.deepEqual(setName.imports, [1]);
 
 const javaInterface = javaStructs.find((item) => item.name === 'ExampleApi');
 assert.ok(javaInterface);
@@ -101,8 +108,42 @@ const interfaceFindName = findMember(javaInterface.members, 'findName');
 assert.equal(interfaceFindName.kind, 'method');
 assert.equal(interfaceFindName.returnNullability, 'nullable');
 assert.equal(interfaceFindName.parameters[0]?.nullability, 'non-null');
+assert.deepEqual(interfaceFindName.imports, [0, 1]);
 
-const aidlStructs = getAIDLStructList(`
+const javaImportFile = parseJavaFile(`
+package sample.api;
+
+import java.util.List;
+import sample.model.A;
+import sample.model.Unused;
+import static sample.model.Container.Nested;
+import sample.wildcard.*;
+
+class ImportExample {
+  public static final A DEFAULT = null;
+
+  List<A> load(Nested nested, WildType value) {
+    return null;
+  }
+}
+`);
+assert.equal(javaImportFile.package, 'sample.api');
+assert.deepEqual(javaImportFile.imports, [
+  'java.util.List',
+  'sample.model.A',
+  'static sample.model.Container.Nested',
+  'sample.wildcard.*',
+]);
+const javaImportExample = javaImportFile.structs[0];
+assert.ok(javaImportExample);
+const load = findMember(javaImportExample.members, 'load');
+assert.deepEqual(load.imports, [0, 1, 2, 3]);
+const defaultValue = findMember(javaImportExample.members, 'DEFAULT');
+assert.equal(defaultValue.kind, 'field');
+assert.equal(defaultValue.isStatic, true);
+assert.deepEqual(defaultValue.imports, [1]);
+
+const aidlFile = parseAIDLFile(`
 package android.app;
 
 interface IExample {
@@ -117,6 +158,9 @@ parcelable ExampleParcelable {
   int count;
 }
 `);
+const aidlStructs = aidlFile.structs;
+assert.equal(aidlFile.package, 'android.app');
+assert.deepEqual(aidlFile.imports, []);
 
 const aidlInterface = aidlStructs.find((item) => item.name === 'IExample');
 assert.ok(aidlInterface);
@@ -154,5 +198,22 @@ assert.equal(Object.hasOwn(aidlSureName, 'fieldNullability'), false);
 const aidlCount = findMember(aidlParcelable.members, 'count');
 assert.equal(aidlCount.kind, 'field');
 assert.equal(Object.hasOwn(aidlCount, 'fieldNullability'), false);
+
+const aidlImportFile = parseAIDLFile(`
+package sample.api;
+
+import sample.model.A;
+import sample.model.Unused;
+
+interface IImportExample {
+  List<A> load(A value);
+}
+`);
+assert.equal(aidlImportFile.package, 'sample.api');
+assert.deepEqual(aidlImportFile.imports, ['sample.model.A']);
+const aidlImportExample = aidlImportFile.structs[0];
+assert.ok(aidlImportExample);
+const aidlLoad = findMember(aidlImportExample.members, 'load');
+assert.deepEqual(aidlLoad.imports, [0]);
 
 console.log('nullability parser tests passed');

@@ -82,13 +82,28 @@ const versionInfoByTag = computed(() => {
 
 const getRangeFromDiffResult = (
   item: DiffResultItem,
+  importIndexes: Map<string, number>,
 ): AndroidApiVersionRangeResult | undefined => {
   const version = versionInfoByTag.value.get(item.tag);
   if (!version) return;
   const members = item.members
     ? [...item.members]
         .sort((a, b) => (a.parameterCount ?? 0) - (b.parameterCount ?? 0))
-        .map(toAndroidApiMemberResult)
+        .map((member) => {
+          const result = toAndroidApiMemberResult(member);
+          result.imports = Array.from(
+            new Set(
+              result.imports.map((index) => {
+                const importName = item.file.imports[index];
+                if (importName === undefined) {
+                  throw new Error(`Invalid member import index: ${index}`);
+                }
+                return importIndexes.get(importName)!;
+              }),
+            ),
+          ).sort((a, b) => a - b);
+          return result;
+        })
     : undefined;
   const missingReason =
     item.notFound || (!item.target && !members?.length)
@@ -131,8 +146,24 @@ const getLatestResolvedTypePath = (): AndroidApiResolvedType[] | undefined => {
 };
 
 const codeQueryResult = computed<AndroidApiQueryResult>(() => {
+  const usedImports = new Set<string>();
+  for (const item of diffResultList.value) {
+    for (const member of item.members ?? []) {
+      for (const index of member.imports) {
+        const importName = item.file.imports[index];
+        if (importName === undefined) {
+          throw new Error(`Invalid member import index: ${index}`);
+        }
+        usedImports.add(importName);
+      }
+    }
+  }
+  const imports = Array.from(usedImports).sort();
+  const importIndexes = new Map(
+    imports.map((value, index) => [value, index] as const),
+  );
   const ranges = diffResultList.value
-    .map(getRangeFromDiffResult)
+    .map((item) => getRangeFromDiffResult(item, importIndexes))
     .filter((range): range is AndroidApiVersionRangeResult => !!range);
   const foundRanges = ranges.filter((range) => !range.missingReason);
   const signatures = Array.from(
@@ -146,6 +177,10 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
   return {
     apiName: searchRef.value,
     normalizedApiName: searchRef.value.trim(),
+    package:
+      diffResultList.value.findLast((item) => item.file.package)?.file
+        .package ?? '',
+    imports,
     source: {
       repo: 'platform/frameworks/base',
       path: searchFromData.value.filePath,

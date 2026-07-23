@@ -1,4 +1,4 @@
-import { getJavaStructList } from '../src/index.ts';
+import { parseJavaFile } from '../src/index.ts';
 import { getFileText } from './cache.ts';
 
 const baseUrl =
@@ -12,18 +12,18 @@ for (const name of urls) {
   console.log('Parsing', name);
   const st = Date.now();
   const input = await getFileText(baseUrl + name + '?format=TEXT');
-  const result = getJavaStructList(input);
+  const result = parseJavaFile(input);
   console.log('Parsed', name, Date.now() - st + 'ms');
   console.log(
     JSON.stringify(
-      result[0].members.map((v) => v.name),
+      result.structs[0]?.members.map((v) => v.name) ?? [],
       null,
       2,
     ),
   );
 }
 
-// const result = getJavaStructList(`
+// const result = parseJavaFile(`
 // public final class Example {
 //     Example(){}
 // }`);

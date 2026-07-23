@@ -5,9 +5,11 @@ import {
   type ParseTree,
 } from 'antlr4';
 import {
+  createApiFile,
+  createImportResolver,
   useStructEditor,
+  type ApiFile,
   type ClassMemberParam,
-  type ClassStruct,
   type Nullability,
 } from '../share.ts';
 import JavaLexer from './JavaLexer.ts';
@@ -64,6 +66,19 @@ const getAnnotationNullability = (
   }
 };
 
+const getSignatureAnnotationTexts = (
+  annotations: (AnnotationContext | null | undefined)[],
+) => {
+  return annotations
+    .filter((annotation) => {
+      const name = getAnnotationName(annotation).toLowerCase();
+      return (
+        nullableAnnotationNames.has(name) || nonNullAnnotationNames.has(name)
+      );
+    })
+    .map((annotation) => annotation!.getText());
+};
+
 const getModifierAnnotations = (modifiers: ModifierContext[]) => {
   return modifiers
     .map((modifier) => modifier.classOrInterfaceModifier()?.annotation())
@@ -115,6 +130,16 @@ const hasAbstractModifier = (ctx: unknown) => {
         ? modifier.classOrInterfaceModifier()
         : modifier;
     return !!classModifier?.ABSTRACT();
+  });
+};
+
+const hasStaticModifier = (ctx: unknown) => {
+  return getDeclarationModifiers(ctx).some((modifier) => {
+    const classModifier =
+      modifier instanceof ModifierContext
+        ? modifier.classOrInterfaceModifier()
+        : modifier;
+    return !!classModifier?.STATIC();
   });
 };
 
@@ -186,19 +211,32 @@ const getFormalParameterAnnotations = (ctx: FormalParameterContext) => {
 
 const getParamList = (
   nodes: ParseTree[] | undefined | null,
+  resolveImports: ReturnType<typeof createImportResolver>,
+  memberImports: Set<number>,
 ): ClassMemberParam[] => {
   if (!nodes?.length) return [];
   return nodes
     .flatMap((node): ClassMemberParam[] => {
       if (node instanceof ReceiverParameterContext) {
-        const { type, nullability } = getTypeInfo(node.typeType());
+        const typeCtx = node.typeType();
+        const { type, nullability } = getTypeInfo(typeCtx);
+        resolveImports([
+          type,
+          ...getSignatureAnnotationTexts(typeCtx.annotation_list()),
+        ]).forEach((index) => memberImports.add(index));
         return [{ type, ...(nullability ? { nullability } : {}) }];
       }
       if (node instanceof FormalParameterContext) {
-        const { type, nullability } = getTypeInfo(
-          node.typeType(),
-          getFormalParameterAnnotations(node),
-        );
+        const annotations = getFormalParameterAnnotations(node);
+        const typeCtx = node.typeType();
+        const { type, nullability } = getTypeInfo(typeCtx, annotations);
+        resolveImports([
+          type,
+          ...getSignatureAnnotationTexts([
+            ...annotations,
+            ...typeCtx.annotation_list(),
+          ]),
+        ]).forEach((index) => memberImports.add(index));
         return [
           {
             name: node.variableDeclaratorId().identifier().getText(),
@@ -208,7 +246,7 @@ const getParamList = (
         ];
       }
       if (node instanceof FormalParameterListContext) {
-        return getParamList(node.children);
+        return getParamList(node.children, resolveImports, memberImports);
       }
       return [];
     })
@@ -223,7 +261,7 @@ const getQualifiedNameTail = (name: string) => {
   return name.split('.').at(-1) ?? name;
 };
 
-export const getJavaStructList = (text: string): ClassStruct[] => {
+export const parseJavaFile = (text: string): ApiFile => {
   const chars = new CharStream(text);
   const lexer = new JavaLexer(chars);
   const tokens = new CommonTokenStream(lexer);
@@ -232,6 +270,14 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   if (result.exception) {
     throw result.exception;
   }
+  const packageName =
+    result.packageDeclaration()?.qualifiedName().getText() ?? '';
+  const sourceImports = result.importDeclaration_list().map((ctx) => {
+    return `${ctx.STATIC() ? 'static ' : ''}${ctx.qualifiedName().getText()}${
+      ctx.MUL() ? '.*' : ''
+    }`;
+  });
+  const resolveImports = createImportResolver(sourceImports);
   const listener = new JavaListener();
   const { addMember, enterStruct, exitStruct, structs, clearUseless } =
     useStructEditor();
@@ -247,12 +293,18 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   listener.enterConstructorDeclaration = (ctx) => {
     const id = ctx.identifier();
     const name = id.getText();
-    const parameters = getParamList(ctx.formalParameters().children);
+    const memberImports = new Set<number>();
+    const parameters = getParamList(
+      ctx.formalParameters().children,
+      resolveImports,
+      memberImports,
+    );
     addMember({
       kind: 'constructor',
       name,
       type: toMethodType(parameters, name),
       loc: id.start.line,
+      imports: Array.from(memberImports).sort((a, b) => a - b),
       parameters,
       parameterCount: parameters.length,
     });
@@ -260,15 +312,29 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   listener.enterMethodDeclaration = (ctx) => {
     const id = ctx.identifier();
     const name = id.getText();
-    const returnInfo = getReturnTypeInfo(ctx.typeTypeOrVoid(), [
-      ...getAncestorModifierAnnotations(ctx),
-    ]);
-    const parameters = getParamList(ctx.formalParameters().children);
+    const returnAnnotations = getAncestorModifierAnnotations(ctx);
+    const returnType = ctx.typeTypeOrVoid();
+    const returnInfo = getReturnTypeInfo(returnType, returnAnnotations);
+    const memberImports = new Set(
+      resolveImports([
+        returnInfo.type,
+        ...getSignatureAnnotationTexts([
+          ...returnAnnotations,
+          ...(returnType.typeType()?.annotation_list() ?? []),
+        ]),
+      ]),
+    );
+    const parameters = getParamList(
+      ctx.formalParameters().children,
+      resolveImports,
+      memberImports,
+    );
     addMember({
       kind: 'method',
       name,
       type: toMethodType(parameters, returnInfo.type),
       loc: id.start.line,
+      imports: Array.from(memberImports).sort((a, b) => a - b),
       ...(hasAbstractModifier(ctx) ? { isAbstract: true } : {}),
       returnType: returnInfo.type,
       ...(returnInfo.nullability
@@ -285,14 +351,22 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
       .variableDeclaratorId()
       .identifier();
     const name = id.getText();
-    const typeInfo = getTypeInfo(ctx.typeType(), [
-      ...getAncestorModifierAnnotations(ctx),
-    ]);
+    const annotations = getAncestorModifierAnnotations(ctx);
+    const typeCtx = ctx.typeType();
+    const typeInfo = getTypeInfo(typeCtx, annotations);
     addMember({
       kind: 'field',
       name,
       type: typeInfo.type,
       loc: id.start.line,
+      imports: resolveImports([
+        typeInfo.type,
+        ...getSignatureAnnotationTexts([
+          ...annotations,
+          ...typeCtx.annotation_list(),
+        ]),
+      ]),
+      ...(hasStaticModifier(ctx) ? { isStatic: true } : {}),
       ...(typeInfo.nullability
         ? { fieldNullability: typeInfo.nullability }
         : {}),
@@ -310,17 +384,33 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
     const b = ctx.interfaceCommonBodyDeclaration();
     const id = b.identifier();
     const name = id.getText();
-    const returnInfo = getReturnTypeInfo(b.typeTypeOrVoid(), [
+    const returnAnnotations = [
       ...getAncestorModifierAnnotations(ctx),
       ...getInterfaceMethodModifierAnnotations(ctx),
       ...b.annotation_list(),
-    ]);
-    const parameters = getParamList(b.formalParameters().children);
+    ];
+    const returnType = b.typeTypeOrVoid();
+    const returnInfo = getReturnTypeInfo(returnType, returnAnnotations);
+    const memberImports = new Set(
+      resolveImports([
+        returnInfo.type,
+        ...getSignatureAnnotationTexts([
+          ...returnAnnotations,
+          ...(returnType.typeType()?.annotation_list() ?? []),
+        ]),
+      ]),
+    );
+    const parameters = getParamList(
+      b.formalParameters().children,
+      resolveImports,
+      memberImports,
+    );
     addMember({
       kind: 'method',
       name,
       type: toMethodType(parameters, returnInfo.type),
       loc: id.start.line,
+      imports: Array.from(memberImports).sort((a, b) => a - b),
       returnType: returnInfo.type,
       ...(returnInfo.nullability
         ? { returnNullability: returnInfo.nullability }
@@ -332,14 +422,21 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   listener.enterConstDeclaration = (ctx) => {
     const id = ctx.constantDeclarator(0).identifier();
     const name = id.getText();
-    const typeInfo = getTypeInfo(ctx.typeType(), [
-      ...getAncestorModifierAnnotations(ctx),
-    ]);
+    const annotations = getAncestorModifierAnnotations(ctx);
+    const typeCtx = ctx.typeType();
+    const typeInfo = getTypeInfo(typeCtx, annotations);
     addMember({
       kind: 'constant',
       name,
       type: typeInfo.type,
       loc: id.start.line,
+      imports: resolveImports([
+        typeInfo.type,
+        ...getSignatureAnnotationTexts([
+          ...annotations,
+          ...typeCtx.annotation_list(),
+        ]),
+      ]),
       ...(typeInfo.nullability
         ? { fieldNullability: typeInfo.nullability }
         : {}),
@@ -350,5 +447,5 @@ export const getJavaStructList = (text: string): ClassStruct[] => {
   for (const struct of structs) {
     struct.name = getQualifiedNameTail(struct.name);
   }
-  return structs;
+  return createApiFile(packageName, sourceImports, structs);
 };

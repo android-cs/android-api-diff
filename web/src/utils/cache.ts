@@ -1,4 +1,4 @@
-import type { ClassStruct } from '@android-cs/api-parser';
+import type { ApiFile } from '@android-cs/api-parser';
 import {
   readCacheValue,
   writeCacheBytesIfAvailable,
@@ -74,22 +74,31 @@ export const persistentFetch = async (
   });
 };
 
-export const getOrSetStructCache = async (
+export const getOrSetApiFileCache = async (
   filePath: string,
-  fallback: () => Promise<ClassStruct[]>,
-): Promise<ClassStruct[]> => {
+  fallback: () => Promise<ApiFile>,
+): Promise<ApiFile> => {
   const expectedEpoch = getCacheEpoch();
   const keyHash = await sha256String(filePath);
   return runSingleFlight(STRUCT_DOMAIN, keyHash, expectedEpoch, async () => {
     const cached = await readCacheValue(
       STRUCT_DOMAIN,
       keyHash,
-      (bytes): ClassStruct[] => {
+      (bytes): ApiFile => {
         const value: unknown = JSON.parse(decodeText(bytes));
-        if (!Array.isArray(value)) {
-          throw new Error('Cached struct value is not an array');
+        if (
+          typeof value !== 'object' ||
+          value === null ||
+          !('package' in value) ||
+          !('imports' in value) ||
+          !('structs' in value) ||
+          typeof value.package !== 'string' ||
+          !Array.isArray(value.imports) ||
+          !Array.isArray(value.structs)
+        ) {
+          throw new Error('Cached API file value is invalid');
         }
-        return value as ClassStruct[];
+        return value as ApiFile;
       },
     ).catch(() => undefined);
     if (cached !== undefined) return cached;

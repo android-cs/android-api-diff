@@ -1,8 +1,8 @@
 import {
   aidlJavaFiles,
-  fileStructsMap,
+  fileApiMap,
   notFoundFileMap,
-  pullStructsByUrl,
+  pullApiFileByUrl,
   searchFilePathByRefName,
 } from '@/store';
 import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
@@ -299,8 +299,9 @@ export const useSharedHomeState = createSharedComposable(() => {
     return androidOrderTags.value
       .map((tag) => {
         const filePath = tag + builder.filePath;
-        const structs = fileStructsMap[filePath];
-        if (!structs) return;
+        const file = fileApiMap[filePath];
+        if (!file) return;
+        const structs = file.structs;
         let typeDesc = '';
         const notFound = notFoundFileMap[filePath];
         let typeColor = notFound ? NOT_FOUND_TYPE_COLOR : '#000';
@@ -338,6 +339,7 @@ export const useSharedHomeState = createSharedComposable(() => {
         }
         const r: DiffResultItem = {
           tag,
+          file,
           structs,
           target,
           members,
@@ -416,7 +418,7 @@ export const useSharedHomeState = createSharedComposable(() => {
         if (row >= version.tags.length) continue;
         if (s.signal.aborted) return;
         tempList.push(
-          pullStructsByUrl(version.tags[row] + builder.filePath, s),
+          pullApiFileByUrl(version.tags[row] + builder.filePath, s),
         );
         if (tempList.length >= diffConcurrentCount.value) {
           await awaitTempList();

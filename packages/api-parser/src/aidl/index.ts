@@ -1,8 +1,10 @@
 import { CharStream, CommonTokenStream, ParseTreeWalker } from 'antlr4';
 import {
+  createApiFile,
+  createImportResolver,
   useStructEditor,
+  type ApiFile,
   type ClassMemberParam,
-  type ClassStruct,
   type Nullability,
 } from '../share.ts';
 import AIDLLexer from './AIDLLexer.ts';
@@ -33,6 +35,16 @@ const getAnnotationNullability = (
   }
 };
 
+const getSignatureAnnotationTexts = (
+  annotations: (AnnotationContext | null | undefined)[],
+) => {
+  return annotations
+    .filter((annotation) =>
+      nullableAnnotationNames.has(getAnnotationName(annotation).toLowerCase()),
+    )
+    .map((annotation) => annotation!.getText());
+};
+
 const getAttributeAnnotations = (
   attributes: AttributesContext | null | undefined,
 ) => {
@@ -58,7 +70,7 @@ const toMethodType = (parameters: ClassMemberParam[], returnType: string) => {
   return `(${parameters.map((param) => param.type).join(', ')}) -> ${returnType}`;
 };
 
-export const getAIDLStructList = (text: string): ClassStruct[] => {
+export const parseAIDLFile = (text: string): ApiFile => {
   const chars = new CharStream(text);
   const lexer = new AIDLLexer(chars);
   const tokens = new CommonTokenStream(lexer);
@@ -67,6 +79,12 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
   if (result.exception) {
     throw result.exception;
   }
+  const packageName =
+    result.packageDeclaration()?.qualifiedName().getText() ?? '';
+  const sourceImports = result
+    .importDeclaration_list()
+    .map((ctx) => ctx.qualifiedName().getText());
+  const resolveImports = createImportResolver(sourceImports);
   const listener = new AIDLListener();
   const {
     addMember,
@@ -96,16 +114,22 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
     if (!hasCurrentStruct()) return;
     const id = ctx.IDENTIFIER();
     const name = id.getText();
-    const returnInfo = getTypeInfo(
-      ctx.type_(),
-      getAttributeAnnotations(ctx.attributes()),
+    const returnAnnotations = getAttributeAnnotations(ctx.attributes());
+    const returnInfo = getTypeInfo(ctx.type_(), returnAnnotations);
+    const memberImports = new Set(
+      resolveImports([
+        returnInfo.type,
+        ...getSignatureAnnotationTexts(returnAnnotations),
+      ]),
     );
     const parameters = (ctx.parameterList()?.parameter_list() || []).map(
       (parameter): ClassMemberParam => {
-        const typeInfo = getTypeInfo(
-          parameter.type_(),
-          parameter.annotation_list(),
-        );
+        const annotations = parameter.annotation_list();
+        const typeInfo = getTypeInfo(parameter.type_(), annotations);
+        resolveImports([
+          typeInfo.type,
+          ...getSignatureAnnotationTexts(annotations),
+        ]).forEach((index) => memberImports.add(index));
         return {
           name: parameter.variableDeclarator().IDENTIFIER().getText(),
           type: typeInfo.type,
@@ -120,6 +144,7 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
       name,
       type: toMethodType(parameters, returnInfo.type),
       loc: id.symbol.line,
+      imports: Array.from(memberImports).sort((a, b) => a - b),
       returnType: returnInfo.type,
       ...(returnInfo.nullability
         ? { returnNullability: returnInfo.nullability }
@@ -130,10 +155,12 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
   };
   listener.enterFieldDeclaration = (ctx) => {
     if (!hasCurrentStruct()) return;
-    const typeInfo = getTypeInfo(
-      ctx.type_(),
-      getAttributeAnnotations(ctx.attributes()),
-    );
+    const annotations = getAttributeAnnotations(ctx.attributes());
+    const typeInfo = getTypeInfo(ctx.type_(), annotations);
+    const imports = resolveImports([
+      typeInfo.type,
+      ...getSignatureAnnotationTexts(annotations),
+    ]);
     for (const declarator of ctx
       .variableDeclarators()
       .variableDeclarator_list()) {
@@ -143,6 +170,7 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
         name: id.getText(),
         type: typeInfo.type,
         loc: id.symbol.line,
+        imports,
         ...(typeInfo.nullability
           ? { fieldNullability: typeInfo.nullability }
           : {}),
@@ -153,15 +181,17 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
     if (!hasCurrentStruct()) return;
     const declaration = ctx.constDeclaration();
     const id = declaration.IDENTIFIER();
-    const typeInfo = getTypeInfo(
-      declaration.type_(),
-      getAttributeAnnotations(declaration.attributes()),
-    );
+    const annotations = getAttributeAnnotations(declaration.attributes());
+    const typeInfo = getTypeInfo(declaration.type_(), annotations);
     addMember({
       kind: 'constant',
       name: id.getText(),
       type: typeInfo.type,
       loc: id.symbol.line,
+      imports: resolveImports([
+        typeInfo.type,
+        ...getSignatureAnnotationTexts(annotations),
+      ]),
       ...(typeInfo.nullability
         ? { fieldNullability: typeInfo.nullability }
         : {}),
@@ -169,5 +199,5 @@ export const getAIDLStructList = (text: string): ClassStruct[] => {
   };
   ParseTreeWalker.DEFAULT.walk(listener, result);
   clearUseless();
-  return structs;
+  return createApiFile(packageName, sourceImports, structs);
 };

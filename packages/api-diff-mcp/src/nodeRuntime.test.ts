@@ -29,10 +29,15 @@ const CACHE_TABLES: readonly CacheTable[] = CACHE_DOMAINS.flatMap((domain) => [
   `${domain}_blobs` as const,
 ]);
 
-const structValue = { structs: [], sourceFileNotFound: true };
+const structValue = {
+  file: { package: '', imports: [], structs: [] },
+  sourceFileNotFound: true,
+};
 const queryValue = {
   apiName: 'android.example.Api',
   normalizedApiName: 'android.example.Api',
+  package: 'android.example',
+  imports: [],
   summary: {
     checkedTags: 0,
     foundTags: 0,

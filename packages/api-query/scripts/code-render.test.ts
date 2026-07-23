@@ -16,7 +16,15 @@ const field = (
   kind: 'field',
   name: 'name',
   type: 'String',
+  imports: [],
   ...(fieldNullability ? { fieldNullability } : {}),
+});
+
+const constant = (type = 'int', name = 'FLAG'): AndroidApiMemberResult => ({
+  kind: 'constant',
+  name,
+  type,
+  imports: [],
 });
 
 const method = (
@@ -28,6 +36,7 @@ const method = (
   kind: 'method',
   name,
   type: `(${parameters.map((parameter) => parameter.type).join(', ')}) -> ${type}`,
+  imports: [],
   ...(isAbstract ? { isAbstract: true } : {}),
   returnType: type,
   parameters,
@@ -43,6 +52,7 @@ const constructor = (
   kind: 'constructor',
   name,
   type: `(${parameters.map((parameter) => parameter.type).join(', ')}) -> ${name}`,
+  imports: [],
   parameters,
 });
 
@@ -96,9 +106,12 @@ const baseResult = (
   targetPaths: string[],
   ranges: AndroidApiVersionRangeResult[],
   typePath?: AndroidApiResolvedType[],
+  imports: string[] = [],
 ): AndroidApiQueryResult => ({
   apiName,
   normalizedApiName: apiName,
+  package: '',
+  imports,
   source: {
     repo: 'platform/frameworks/base',
     path: sourcePath,
@@ -177,10 +190,26 @@ const baseResult = (
 }
 
 {
+  const result = renderAndroidApiCode(
+    baseResult(
+      'TaskManager.clear',
+      'core/java/android/app/TaskManager.java',
+      ['TaskManager', 'clear'],
+      [range('8', 'O', 26, 'android-8.0.0_r1', [method('void', [], 'clear')])],
+      [{ name: 'TaskManager', kind: 'class' }],
+    ),
+  );
+
+  assert.match(result.code, /public void clear\(\) \{\}/);
+  assert.doesNotMatch(result.code, /clear\(\).*RuntimeException/);
+}
+
+{
   const transact: AndroidApiMemberResult = {
     kind: 'method',
     name: 'transact',
     type: '(int, HwParcel, HwParcel, int) -> void',
+    imports: [],
     returnType: 'void',
     returnNullability: 'non-null',
     parameters: [
@@ -405,6 +434,8 @@ const baseResult = (
     ],
     'getUsers',
   );
+  methodA.imports = [0];
+  methodB.imports = [0];
   const result = renderAndroidApiCode(
     baseResult(
       'IUserManager.getUsers',
@@ -472,6 +503,8 @@ const baseResult = (
           [methodA],
         ),
       ],
+      undefined,
+      ['android.content.pm.UserInfo'],
     ),
   );
 
@@ -566,6 +599,60 @@ const baseResult = (
     result.code,
     /\/\/ 13 - 13\.0\.0_r2\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
   );
+}
+
+{
+  const staticField: AndroidApiMemberResult = {
+    kind: 'field',
+    name: 'STATE',
+    type: 'int',
+    imports: [],
+    isStatic: true,
+  };
+  const result = renderAndroidApiCode(
+    baseResult(
+      'Example.FLAG',
+      'core/java/android/example/Example.java',
+      ['Example', 'FLAG'],
+      [
+        range('14', 'UPSIDE_DOWN_CAKE', 34, 'android-14.0.0_r1', [
+          constant(),
+          staticField,
+        ]),
+      ],
+      [{ name: 'Example', kind: 'class' }],
+    ),
+  );
+  assert.match(result.code, /public static int FLAG;/);
+  assert.match(result.code, /public static int STATE;/);
+  assert.doesNotMatch(result.code, /static final/);
+  assert.doesNotMatch(result.code, /(FLAG|STATE)\s*=/);
+}
+
+{
+  const useFoo = method('void', [{ name: 'value', type: 'A' }], 'useFoo');
+  useFoo.imports = [0];
+  const useBar = method('void', [{ name: 'value', type: 'A' }], 'useBar');
+  useBar.imports = [1];
+  const result = renderAndroidApiCode(
+    baseResult(
+      'ImportConflict',
+      'core/java/android/example/ImportConflict.java',
+      ['ImportConflict'],
+      [
+        range('14', 'UPSIDE_DOWN_CAKE', 34, 'android-14.0.0_r1', [
+          useFoo,
+          useBar,
+        ]),
+      ],
+      [{ name: 'ImportConflict', kind: 'class' }],
+      ['foo.A', 'bar.A'],
+    ),
+  );
+  assert.doesNotMatch(result.code, /import foo\.A;/);
+  assert.doesNotMatch(result.code, /import bar\.A;/);
+  assert.match(result.code, /useFoo\(foo\.A value\)/);
+  assert.match(result.code, /useBar\(bar\.A value\)/);
 }
 
 {

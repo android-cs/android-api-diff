@@ -13,6 +13,7 @@ interface VersionUrlBuilder {
 
 interface DiffResultItem {
   tag: string;
+  file: import('@android-cs/api-parser').ApiFile;
   structs: import('@android-cs/api-parser').ClassStruct[];
   target: import('@android-cs/api-parser').ClassStruct | undefined;
   members: import('@android-cs/api-parser').ClassMember[] | undefined;

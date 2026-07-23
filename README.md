@@ -6,7 +6,7 @@ An online tool to show Android Java/AIDL files api changes between different and
 
 ## Packages
 
-- `packages/api-parser` (`@android-cs/api-parser`): parses Android Java/AIDL source into API structs.
+- `packages/api-parser` (`@android-cs/api-parser`): parses each Android Java/AIDL source file into package, import, and API-struct metadata.
 - `packages/api-query` (`@android-cs/api-query`): platform-neutral API resolver and cross-version query core.
 - `packages/api-diff-mcp` (`@android-cs/api-diff-mcp`): stdio MCP v2 server for AI clients.
 - `web` (`@android-cs/web`): Vue UI for browser usage.
