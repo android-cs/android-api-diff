@@ -44,6 +44,7 @@ export interface AndroidApiResolvedType {
   name: string;
   kind: 'class' | 'interface';
   isAbstract?: true;
+  isHidden: boolean;
 }
 
 export interface AndroidApiResolution {

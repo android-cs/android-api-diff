@@ -9,7 +9,10 @@ import type {
   AndroidApiResolvedType,
   AndroidApiVersionRangeResult,
 } from '@android-cs/api-query';
-import { findStructPathByPath } from '@android-cs/api-query';
+import {
+  findStructPathByPath,
+  toAndroidApiResolvedType,
+} from '@android-cs/api-query';
 import {
   renderAndroidApiCodeWithMemberCode,
   toAndroidApiMemberResult,
@@ -137,11 +140,7 @@ const getLatestResolvedTypePath = (): AndroidApiResolvedType[] | undefined => {
       targetPaths,
     );
     if (!path) continue;
-    return path.map((struct) => ({
-      name: struct.name,
-      kind: struct.isInterface ? 'interface' : 'class',
-      ...(struct.isAbstract ? { isAbstract: true } : {}),
-    }));
+    return path.map(toAndroidApiResolvedType);
   }
 };
 

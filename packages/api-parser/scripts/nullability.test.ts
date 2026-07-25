@@ -17,7 +17,21 @@ public abstract class Example {
   String unknownName;
   int count;
 
+  /** @hide */
+  @Deprecated
+  public static String hiddenName;
+
   Example(@NonNull String name) {}
+
+  /**
+   * Loads a hidden value.
+   *
+   * @hide
+   */
+  @Deprecated
+  String loadHiddenName() {
+    return "";
+  }
 
   @Nullable String findName(@Nullable String key, @NonNull Object token) {
     return null;
@@ -39,6 +53,10 @@ public abstract class Example {
 interface ExampleApi {
   @Nullable String findName(@NonNull String key);
 }
+
+/** @hide */
+@Deprecated
+class HiddenExample {}
 `);
 const javaStructs = javaFile.structs;
 assert.equal(javaFile.package, '');
@@ -51,6 +69,13 @@ const javaExample = javaStructs.find((item) => item.name === 'Example');
 assert.ok(javaExample);
 assert.equal(Object.hasOwn(javaExample, 'isInterface'), false);
 assert.equal(javaExample.isAbstract, true);
+assert.equal(Object.hasOwn(javaExample, 'isHidden'), false);
+
+const javaHiddenExample = javaStructs.find(
+  (item) => item.name === 'HiddenExample',
+);
+assert.ok(javaHiddenExample);
+assert.equal(javaHiddenExample.isHidden, true);
 
 const maybeName = findMember(javaExample.members, 'maybeName');
 assert.equal(maybeName.kind, 'field');
@@ -67,6 +92,12 @@ assert.equal(Object.hasOwn(unknownName, 'fieldNullability'), false);
 const count = findMember(javaExample.members, 'count');
 assert.equal(count.kind, 'field');
 assert.equal(count.fieldNullability, 'non-null');
+
+const hiddenName = findMember(javaExample.members, 'hiddenName');
+assert.equal(Object.hasOwn(hiddenName, 'isHidden'), false);
+
+const loadHiddenName = findMember(javaExample.members, 'loadHiddenName');
+assert.equal(Object.hasOwn(loadHiddenName, 'isHidden'), false);
 
 const constructor = findMember(javaExample.members, 'Example');
 assert.equal(constructor.kind, 'constructor');
@@ -165,6 +196,7 @@ assert.deepEqual(aidlFile.imports, []);
 const aidlInterface = aidlStructs.find((item) => item.name === 'IExample');
 assert.ok(aidlInterface);
 assert.equal(aidlInterface.isInterface, true);
+assert.equal(aidlInterface.isHidden, true);
 
 const aidlFindName = findMember(aidlInterface.members, 'findName');
 assert.equal(aidlFindName.kind, 'method');
@@ -186,6 +218,7 @@ const aidlParcelable = aidlStructs.find(
 );
 assert.ok(aidlParcelable);
 assert.equal(Object.hasOwn(aidlParcelable, 'isInterface'), false);
+assert.equal(aidlParcelable.isHidden, true);
 
 const aidlMaybeName = findMember(aidlParcelable.members, 'maybeName');
 assert.equal(aidlMaybeName.kind, 'field');

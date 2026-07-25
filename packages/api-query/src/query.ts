@@ -1,4 +1,4 @@
-import type { ApiFile, ClassMember, ClassStruct } from '@android-cs/api-parser';
+import type { ApiFile, ClassMember } from '@android-cs/api-parser';
 import { parseAIDLFile, parseJavaFile } from '@android-cs/api-parser';
 import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
@@ -8,7 +8,7 @@ import {
   searchFilePathByRefName,
   toAndroidApiResolution,
 } from './resolve.ts';
-import { findStructPathByPath } from './struct.ts';
+import { findStructPathByPath, toAndroidApiResolvedType } from './struct.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiMissingReason,
@@ -22,8 +22,8 @@ import type {
 } from './types.ts';
 import { getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v10';
-export const QUERY_CACHE_VERSION = 'query:v21';
+export const STRUCT_CACHE_VERSION = 'struct:v11';
+export const QUERY_CACHE_VERSION = 'query:v22';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -157,14 +157,6 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
     ...(member.fieldNullability
       ? { fieldNullability: member.fieldNullability }
       : {}),
-  };
-};
-
-const toResolvedType = (struct: ClassStruct): AndroidApiResolvedType => {
-  return {
-    name: struct.name,
-    kind: struct.isInterface ? 'interface' : 'class',
-    ...(struct.isAbstract ? { isAbstract: true } : {}),
   };
 };
 
@@ -433,7 +425,7 @@ export const queryAndroidApi = async (
               );
               if (foundTypePath) {
                 targetFound = true;
-                typePath = foundTypePath.map(toResolvedType);
+                typePath = foundTypePath.map(toAndroidApiResolvedType);
               }
             } else {
               const propName = search.targetPaths.at(-1);
@@ -443,7 +435,7 @@ export const queryAndroidApi = async (
               );
               const foundTarget = foundTypePath?.at(-1);
               if (foundTypePath && foundTarget && propName) {
-                typePath = foundTypePath.map(toResolvedType);
+                typePath = foundTypePath.map(toAndroidApiResolvedType);
                 const matchedMembers = foundTarget.members.filter(
                   (v) =>
                     v.name === propName &&

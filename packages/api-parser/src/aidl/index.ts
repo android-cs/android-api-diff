@@ -99,6 +99,8 @@ export const parseAIDLFile = (text: string): ApiFile => {
       ctx.IDENTIFIER().getText(),
       ctx.IDENTIFIER().symbol.line,
       'interface',
+      false,
+      true,
     );
   };
   listener.exitInterfaceDeclaration = exitStruct;
@@ -107,6 +109,8 @@ export const parseAIDLFile = (text: string): ApiFile => {
       getQualifiedNameTail(ctx.qualifiedName(0).getText()),
       ctx.qualifiedName(0).start.line,
       'class',
+      false,
+      true,
     );
   };
   listener.exitParcelableDeclaration = exitStruct;

@@ -177,7 +177,14 @@ const baseResult = (
           concreteMethod,
         ]),
       ],
-      [{ name: 'AbstractService', kind: 'class', isAbstract: true }],
+      [
+        {
+          name: 'AbstractService',
+          kind: 'class',
+          isAbstract: true,
+          isHidden: true,
+        },
+      ],
     ),
   );
 
@@ -200,7 +207,7 @@ const baseResult = (
       'core/java/android/app/TaskManager.java',
       ['TaskManager', 'clear'],
       [range('8', 'O', 26, 'android-8.0.0_r1', [method('void', [], 'clear')])],
-      [{ name: 'TaskManager', kind: 'class' }],
+      [{ name: 'TaskManager', kind: 'class', isHidden: true }],
     ),
   );
 
@@ -229,7 +236,7 @@ const baseResult = (
       'core/java/android/os/IHwBinder.java',
       ['IHwBinder', 'transact'],
       [range('8', 'O', 26, 'android-8.0.0_r1', [transact])],
-      [{ name: 'IHwBinder', kind: 'interface' }],
+      [{ name: 'IHwBinder', kind: 'interface', isHidden: true }],
     ),
   );
 
@@ -266,6 +273,71 @@ const baseResult = (
 }
 
 {
+  const persistentDeviceId: AndroidApiMemberResult = {
+    kind: 'field',
+    name: 'PERSISTENT_DEVICE_ID_DEFAULT',
+    type: 'String',
+    imports: [],
+    isStatic: true,
+  };
+  const result = renderAndroidApiCode(
+    baseResult(
+      'VirtualDeviceManager.PERSISTENT_DEVICE_ID_DEFAULT',
+      'core/java/android/companion/virtual/VirtualDeviceManager.java',
+      ['VirtualDeviceManager', 'PERSISTENT_DEVICE_ID_DEFAULT'],
+      [
+        range('14', 'UPSIDE_DOWN_CAKE', 34, 'android-14.0.0_r1', [
+          persistentDeviceId,
+        ]),
+      ],
+      [
+        {
+          name: 'VirtualDeviceManager',
+          kind: 'class',
+          isHidden: false,
+        },
+      ],
+    ),
+  );
+
+  assert.match(result.code, /^package android\.companion\.virtual;/);
+  assert.match(result.code, /import li\.songe\.remap\.RemapType;/);
+  assert.match(
+    result.code,
+    /@RemapType\(VirtualDeviceManager\.class\)\npublic class VirtualDeviceManagerHidden \{/,
+  );
+  assert.match(
+    result.code,
+    /public static String PERSISTENT_DEVICE_ID_DEFAULT;/,
+  );
+}
+
+{
+  const result = renderAndroidApiCode(
+    baseResult(
+      'ServiceManager.getServiceOrThrow',
+      'core/java/android/os/ServiceManager.java',
+      ['ServiceManager', 'getServiceOrThrow'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [
+          method(
+            'IBinder',
+            [{ name: 'name', type: 'String' }],
+            'getServiceOrThrow',
+          ),
+        ]),
+      ],
+      [{ name: 'ServiceManager', kind: 'class', isHidden: true }],
+    ),
+  );
+
+  assert.doesNotMatch(result.code, /li\.songe\.remap\.RemapType/);
+  assert.doesNotMatch(result.code, /@RemapType/);
+  assert.match(result.code, /public class ServiceManager \{/);
+  assert.doesNotMatch(result.code, /ServiceManagerHidden/);
+}
+
+{
   const result = renderAndroidApiCode(
     baseResult(
       'UserInfoHidden.name',
@@ -283,6 +355,7 @@ const baseResult = (
     /@RemapType\(UserInfo\.class\)\npublic class UserInfoHidden \{/,
   );
   assert.doesNotMatch(result.code, /public class UserInfo \{/);
+  assert.doesNotMatch(result.code, /UserInfoHiddenHidden/);
 }
 
 {
@@ -483,7 +556,7 @@ const baseResult = (
           toTagPosition: 'last-checked',
         },
       ],
-      [{ name: 'IContentProvider', kind: 'interface' }],
+      [{ name: 'IContentProvider', kind: 'interface', isHidden: true }],
     ),
   );
 
@@ -836,7 +909,7 @@ const baseResult = (
           staticField,
         ]),
       ],
-      [{ name: 'Example', kind: 'class' }],
+      [{ name: 'Example', kind: 'class', isHidden: true }],
     ),
   );
   assert.match(result.code, /public static int FLAG;/);
@@ -861,7 +934,7 @@ const baseResult = (
           useBar,
         ]),
       ],
-      [{ name: 'ImportConflict', kind: 'class' }],
+      [{ name: 'ImportConflict', kind: 'class', isHidden: true }],
       ['foo.A', 'bar.A'],
     ),
   );

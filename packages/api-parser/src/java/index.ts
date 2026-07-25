@@ -45,6 +45,8 @@ const primitiveTypeNames = new Set([
   'short',
   'void',
 ]);
+const hideDocTagReg = /(^|[^A-Za-z0-9_$])@hide(?![A-Za-z0-9_$])/;
+const commentTokenTypes = new Set([JavaLexer.COMMENT, JavaLexer.LINE_COMMENT]);
 
 const getAnnotationName = (
   annotation: AnnotationContext | null | undefined,
@@ -88,6 +90,37 @@ const getModifierAnnotations = (modifiers: ModifierContext[]) => {
 const getParent = (ctx: unknown): unknown => {
   const value = ctx as { parentCtx?: unknown; parent?: unknown };
   return value.parentCtx ?? value.parent;
+};
+
+const getDeclarationContext = (
+  ctx: unknown,
+):
+  | ClassBodyDeclarationContext
+  | InterfaceBodyDeclarationContext
+  | TypeDeclarationContext
+  | undefined => {
+  let current = getParent(ctx);
+  while (current) {
+    if (
+      current instanceof ClassBodyDeclarationContext ||
+      current instanceof InterfaceBodyDeclarationContext ||
+      current instanceof TypeDeclarationContext
+    ) {
+      return current;
+    }
+    current = getParent(current);
+  }
+};
+
+const hasHideDocTag = (ctx: unknown, tokens: CommonTokenStream): boolean => {
+  const declaration = getDeclarationContext(ctx);
+  if (!declaration) return false;
+  const hiddenTokens =
+    tokens.getHiddenTokensToLeft(declaration.start.tokenIndex) ?? [];
+  return hiddenTokens.some(
+    (token) =>
+      commentTokenTypes.has(token.type) && hideDocTagReg.test(token.text),
+  );
 };
 
 const getAncestorModifierAnnotations = (ctx: unknown) => {
@@ -287,6 +320,7 @@ export const parseJavaFile = (text: string): ApiFile => {
       ctx.identifier().start.line,
       'class',
       hasAbstractModifier(ctx),
+      hasHideDocTag(ctx, tokens),
     );
   };
   listener.exitClassDeclaration = exitStruct;
@@ -377,6 +411,8 @@ export const parseJavaFile = (text: string): ApiFile => {
       ctx.identifier().getText(),
       ctx.identifier().start.line,
       'interface',
+      false,
+      hasHideDocTag(ctx, tokens),
     );
   };
   listener.exitInterfaceDeclaration = exitStruct;

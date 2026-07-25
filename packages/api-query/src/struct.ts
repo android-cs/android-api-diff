@@ -1,4 +1,16 @@
 import type { ClassStruct } from '@android-cs/api-parser';
+import type { AndroidApiResolvedType } from './types.ts';
+
+export const toAndroidApiResolvedType = (
+  struct: ClassStruct,
+): AndroidApiResolvedType => {
+  return {
+    name: struct.name,
+    kind: struct.isInterface ? 'interface' : 'class',
+    ...(struct.isAbstract ? { isAbstract: true } : {}),
+    isHidden: !!struct.isHidden,
+  };
+};
 
 export const findStructByName = (
   list: ClassStruct[] | undefined,

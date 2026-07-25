@@ -51,6 +51,7 @@ export interface ClassStruct {
   loc: number;
   isInterface?: true;
   isAbstract?: true;
+  isHidden?: true;
   members: ClassMember[];
   children?: ClassStruct[];
 }
@@ -195,12 +196,14 @@ export const useStructEditor = () => {
     loc: number,
     kind: 'class' | 'interface',
     isAbstract = false,
+    isHidden = false,
   ) => {
     const v: TempClassStruct = {
       name,
       loc,
       ...(kind === 'interface' ? { isInterface: true as const } : {}),
       ...(isAbstract ? { isAbstract: true as const } : {}),
+      ...(isHidden ? { isHidden: true as const } : {}),
       members: [],
       children: [],
     };

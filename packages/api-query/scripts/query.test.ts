@@ -3,6 +3,7 @@ import { renderAndroidApiCode } from '../src/code-render.ts';
 import { loadAndroidVersionList } from '../src/data.ts';
 import { queryAndroidApi } from '../src/query.ts';
 import { searchFilePathByRefName } from '../src/resolve.ts';
+import { toAndroidApiResolvedType } from '../src/struct.ts';
 import type { AndroidApiQueryRuntime } from '../src/types.ts';
 
 const version13Tags = [
@@ -40,6 +41,44 @@ public interface IExample {
 `;
   },
 };
+
+{
+  assert.deepEqual(
+    toAndroidApiResolvedType({
+      name: 'VisibleType',
+      loc: 1,
+      isAbstract: true,
+      members: [],
+      children: [
+        {
+          name: 'NestedType',
+          loc: 2,
+          members: [],
+        },
+      ],
+    }),
+    {
+      name: 'VisibleType',
+      kind: 'class',
+      isAbstract: true,
+      isHidden: false,
+    },
+  );
+  assert.deepEqual(
+    toAndroidApiResolvedType({
+      name: 'HiddenInterface',
+      loc: 3,
+      isInterface: true,
+      isHidden: true,
+      members: [],
+    }),
+    {
+      name: 'HiddenInterface',
+      kind: 'interface',
+      isHidden: true,
+    },
+  );
+}
 
 {
   const files = [
@@ -249,7 +288,7 @@ interface IOrdered {
     },
   };
 
-  await queryAndroidApi(versionMajorRuntime, {
+  const versionMajorResult = await queryAndroidApi(versionMajorRuntime, {
     apiName: 'IOrdered.ping',
     concurrency: 1,
   });
@@ -260,6 +299,15 @@ interface IOrdered {
     'android-9.0.0_r2',
     'android-10.0.0_r1',
   ]);
+  assert.equal(
+    Object.hasOwn(versionMajorResult.ranges[0]?.members?.[0] ?? {}, 'isHidden'),
+    false,
+  );
+  assert.equal(versionMajorResult.resolvedTarget.typePath?.[0]?.isHidden, true);
+  assert.doesNotMatch(
+    renderAndroidApiCode(versionMajorResult).code,
+    /RemapType/,
+  );
 }
 
 {
@@ -472,6 +520,97 @@ public interface IImportExample {
   assert.match(code, /import sample\.model\.A;/);
   assert.doesNotMatch(code, /sample\.model\.Unused/);
   assert.match(code, /List<A> load\(A value\);/);
+}
+
+{
+  const hiddenFieldResult = await queryAndroidApi(
+    {
+      loadAidlJavaFiles: async () => [
+        'core/java/android/companion/virtual/VirtualDeviceManager.java',
+      ],
+      loadAndroidVersionList: async () => [
+        {
+          version: '15',
+          alias: 'VANILLA_ICE_CREAM',
+          apiVersion: 35,
+          tags: ['android-15.0.0_r1'],
+          futureTags: [],
+        },
+      ],
+      fetchText: async () => `
+package android.companion.virtual;
+
+public final class VirtualDeviceManager {
+  /**
+   * Persistent device identifier corresponding to the default device.
+   *
+   * @hide
+   */
+  @Deprecated
+  public static final String PERSISTENT_DEVICE_ID_DEFAULT = "default:0";
+}
+`,
+    },
+    {
+      apiName: 'VirtualDeviceManager.PERSISTENT_DEVICE_ID_DEFAULT',
+      minSdk: 35,
+      concurrency: 1,
+    },
+  );
+  assert.equal(
+    Object.hasOwn(hiddenFieldResult.ranges[0]?.members?.[0] ?? {}, 'isHidden'),
+    false,
+  );
+  assert.equal(hiddenFieldResult.resolvedTarget.typePath?.[0]?.isHidden, false);
+  assert.match(
+    renderAndroidApiCode(hiddenFieldResult).code,
+    /@RemapType\(VirtualDeviceManager\.class\)\npublic class VirtualDeviceManagerHidden \{/,
+  );
+}
+
+{
+  const hiddenTypeResult = await queryAndroidApi(
+    {
+      loadAidlJavaFiles: async () => [
+        'core/java/android/os/ServiceManager.java',
+      ],
+      loadAndroidVersionList: async () => [
+        {
+          version: '14',
+          alias: 'UPSIDE_DOWN_CAKE',
+          apiVersion: 34,
+          tags: ['android-14.0.0_r1'],
+          futureTags: [],
+        },
+      ],
+      fetchText: async () => `
+package android.os;
+
+/**
+ * Manages binder services.
+ *
+ * @hide
+ */
+@Deprecated
+public final class ServiceManager {
+  /** @hide */
+  public static IBinder getServiceOrThrow(String name) {
+    return null;
+  }
+}
+`,
+    },
+    {
+      apiName: 'ServiceManager.getServiceOrThrow',
+      minSdk: 34,
+      concurrency: 1,
+    },
+  );
+  assert.equal(hiddenTypeResult.resolvedTarget.typePath?.[0]?.isHidden, true);
+  const code = renderAndroidApiCode(hiddenTypeResult).code;
+  assert.doesNotMatch(code, /RemapType/);
+  assert.match(code, /public class ServiceManager \{/);
+  assert.doesNotMatch(code, /ServiceManagerHidden/);
 }
 
 {

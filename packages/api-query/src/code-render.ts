@@ -703,14 +703,25 @@ const getDisplayClassPath = (
   result: AndroidApiQueryResult,
   actualClassPath: string[],
   packageName: string,
+  useAutomaticHiddenClass: boolean,
 ): string[] => {
   const classRefParts = removePackagePrefix(
     getQueryClassRefParts(result),
     packageName,
   );
-  if (classRefParts.length < actualClassPath.length) return actualClassPath;
-  const displayClassPath = classRefParts.slice(-actualClassPath.length);
-  if (!displayClassPath.every(isValidJavaIdentifier)) return actualClassPath;
+  const displayClassPath =
+    classRefParts.length < actualClassPath.length
+      ? [...actualClassPath]
+      : classRefParts.slice(-actualClassPath.length);
+  if (!displayClassPath.every(isValidJavaIdentifier)) {
+    return actualClassPath;
+  }
+  const hasExplicitRemap = displayClassPath.some(
+    (name, index) => name !== actualClassPath[index],
+  );
+  if (useAutomaticHiddenClass && !hasExplicitRemap && displayClassPath[0]) {
+    displayClassPath[0] = `${displayClassPath[0]}Hidden`;
+  }
   return displayClassPath;
 };
 
@@ -743,6 +754,7 @@ const getResolvedTypePath = (
           index === 0 && isAidlInterface(result, actualClassPath)
             ? ('interface' as const)
             : ('class' as const),
+        isHidden: true,
       }));
   const hasAbstractMethod = declarations.some(
     (declaration) =>
@@ -1300,12 +1312,14 @@ const renderCode = (
   const packageName =
     result.package || getPackageNameFromPath(result.source?.path);
   const actualClassPath = getActualClassPath(result);
+  const typePath = getResolvedTypePath(result, actualClassPath, declarations);
+  const useAutomaticHiddenClass = typePath[0]?.isHidden === false;
   const displayClassPath = getDisplayClassPath(
     result,
     actualClassPath,
     packageName,
+    useAutomaticHiddenClass,
   );
-  const typePath = getResolvedTypePath(result, actualClassPath, declarations);
   const inInterface = typePath.at(-1)?.kind === 'interface';
   const includeAidlStub =
     !!result.source?.path.endsWith('.aidl') &&

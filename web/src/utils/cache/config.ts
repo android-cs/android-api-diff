@@ -3,7 +3,7 @@ export const CACHE_VERSIONS = {
   format: 1,
   codec: 'gzip',
   text: 1,
-  struct: 12,
+  struct: 13,
 } as const;
 const CACHE_VERSION_KEY =
   `${CACHE_VERSIONS.format}:${CACHE_VERSIONS.codec}:${CACHE_VERSIONS.text}:${CACHE_VERSIONS.struct}` as const;
@@ -14,6 +14,7 @@ const CACHE_VERSION_KEY =
 const DATABASE_VERSION_BY_CACHE_VERSION = {
   '1:gzip:1:11': 1,
   '1:gzip:1:12': 2,
+  '1:gzip:1:13': 3,
 } as const;
 export const DATABASE_VERSION =
   DATABASE_VERSION_BY_CACHE_VERSION[CACHE_VERSION_KEY];
