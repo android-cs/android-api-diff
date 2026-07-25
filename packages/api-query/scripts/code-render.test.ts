@@ -1,5 +1,8 @@
 import { strict as assert } from 'node:assert';
-import { renderAndroidApiCode } from '../src/code-render.ts';
+import {
+  renderAndroidApiCode,
+  renderAndroidApiCodeWithMemberCode,
+} from '../src/code-render.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryResult,
@@ -146,6 +149,7 @@ const baseResult = (
     ),
   );
 
+  assert.equal('memberCode' in result, false);
   assert.match(result.code, /^package android\.database;/);
   assert.match(result.code, /public class ContentObserver \{/);
   assert.match(
@@ -452,7 +456,7 @@ const baseResult = (
     ],
     'call',
   );
-  const result = renderAndroidApiCode(
+  const result = renderAndroidApiCodeWithMemberCode(
     baseResult(
       'IContentProvider.call',
       'core/java/android/content/IContentProvider.java',
@@ -491,6 +495,11 @@ const baseResult = (
     result.code,
     /@RequiresApi\(Build\.VERSION_CODES\.Q\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.R\)\n\s+String call\(String callingPkg, String authority\);/,
   );
+  assert.match(
+    result.memberCode,
+    /    @RequiresApi\(Build\.VERSION_CODES\.Q\)\n    @DeprecatedSinceApi\(api = Build\.VERSION_CODES\.R\)\n    String call\(String callingPkg, String authority\);/,
+  );
+  assert.doesNotMatch(result.memberCode, /^(package|import|public interface)/m);
   assert.match(
     result.code,
     /@RequiresApi\(Build\.VERSION_CODES\.R\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.S\)\n\s+String call\(String callingPkg, String attributionTag, String authority\);/,
@@ -751,7 +760,7 @@ const baseResult = (
     { name: 'keepIntentExtra', type: 'boolean' },
     { name: 'displayId', type: 'int' },
   ]);
-  const result = renderAndroidApiCode(
+  const result = renderAndroidApiCodeWithMemberCode(
     baseResult(
       'IActivityTaskManager.getTasks',
       'core/java/android/app/IActivityTaskManager.aidl',
@@ -801,6 +810,11 @@ const baseResult = (
     result.code,
     /\/\/ 13 - 13\.0\.0_r2\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
   );
+  assert.match(
+    result.memberCode,
+    /^    \/\/ 10\n    List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
+  );
+  assert.doesNotMatch(result.memberCode, /^(package|import|public interface)/m);
 }
 
 {

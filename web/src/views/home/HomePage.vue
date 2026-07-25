@@ -11,7 +11,7 @@ import type {
 } from '@android-cs/api-query';
 import { findStructPathByPath } from '@android-cs/api-query';
 import {
-  renderAndroidApiCode,
+  renderAndroidApiCodeWithMemberCode,
   toAndroidApiMemberResult,
 } from '@android-cs/api-query/code-render';
 import { useEventListener } from '@vueuse/core';
@@ -204,8 +204,15 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
   };
 });
 
-const generatedCodeText = computed(() => {
-  return renderAndroidApiCode(codeQueryResult.value).code;
+const generatedCodeResult = computed(() =>
+  renderAndroidApiCodeWithMemberCode(codeQueryResult.value),
+);
+
+const generatedCodeText = computed(() => generatedCodeResult.value.code);
+
+const generatedMemberCodeText = computed(() => {
+  if (searchFromData.value.targetKind !== 'member') return '';
+  return generatedCodeResult.value.memberCode;
 });
 
 const handleGenerateCode = async () => {
@@ -470,32 +477,6 @@ const handleClearLocalCache = async () => {
         <MSvg name="loading" size-16px v-if="handleDiff.loading" />
         <div>{{ handleDiff.loading ? `STOP` : `DIFF` }}</div>
       </div>
-      <button
-        type="button"
-        px-12px
-        py-0
-        min-h-24px
-        rounded-xs
-        flex
-        items-center
-        gap-4px
-        text-16px
-        font-github-mono
-        b-none
-        cursor-pointer
-        bg-gray-100
-        hover="bg-gray-200"
-        active="bg-gray-300"
-        transition-colors
-        select-none
-        :disabled="!isCanParsedUrl"
-        :class="{
-          'cursor-not-allowed! opacity-50': !isCanParsedUrl,
-        }"
-        @click="handleGenerateCode"
-      >
-        <span>CODE</span>
-      </button>
     </div>
     <dialog
       ref="codeDialogRef"
@@ -518,19 +499,13 @@ const handleClearLocalCache = async () => {
             <div text-12px text-gray-500 break-all>{{ searchRef }}</div>
           </div>
           <button
-            v-if="generatedCodeText"
             type="button"
-            class="code-dialog-action"
-            @click="copyGeneratedCode"
-          >
-            {{ isCodeCopied ? 'Copied' : 'Copy' }}
-          </button>
-          <button
-            type="button"
-            class="code-dialog-action"
+            class="code-dialog-close"
+            aria-label="Close generated code"
+            title="Close"
             @click="closeCodeDialog"
           >
-            Close
+            <MSvg name="close" size-24px />
           </button>
         </div>
         <div p-16px>
@@ -550,15 +525,34 @@ const handleClearLocalCache = async () => {
                 : 'Run DIFF to load Android API ranges.'
             }}
           </div>
-          <pre
-            v-else
-            class="generated-code"
-          ><code>{{ generatedCodeText }}</code></pre>
+          <div v-else relative>
+            <pre
+              class="generated-code"
+            ><code>{{ generatedCodeText }}</code></pre>
+            <button
+              type="button"
+              class="generated-code-copy"
+              :class="{ 'is-copied': isCodeCopied }"
+              :aria-label="
+                isCodeCopied ? 'Generated code copied' : 'Copy generated code'
+              "
+              :title="isCodeCopied ? 'Copied' : 'Copy generated code'"
+              @click="copyGeneratedCode"
+            >
+              <MSvg name="copy" size-24px />
+            </button>
+            <span sr-only aria-live="polite">
+              {{ isCodeCopied ? 'Generated code copied' : '' }}
+            </span>
+          </div>
         </div>
       </div>
     </dialog>
     <div ref="stickyDiffResultRef" pt="--gap" sticky top-0 z-10 bg-white>
-      <DiffResultList />
+      <DiffResultList
+        :copy-text="generatedMemberCodeText"
+        @open-code="handleGenerateCode"
+      />
       <div
         ref="versionColorScrollRef"
         flex
@@ -662,19 +656,57 @@ const handleClearLocalCache = async () => {
   flex-direction: column;
 }
 
-.code-dialog-action {
-  min-height: 26px;
-  border: 1px solid #d1d5db;
+.code-dialog-close,
+.generated-code-copy {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
   border-radius: 4px;
-  background: #ffffff;
-  padding: 0 10px;
-  color: #111827;
   cursor: pointer;
-  font: inherit;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
 }
 
-.code-dialog-action:hover {
+.code-dialog-close {
+  flex: none;
+  background: transparent;
+  color: #6b7280;
+}
+
+.code-dialog-close:hover {
   background: #f3f4f6;
+  color: #111827;
+}
+
+.code-dialog-close:active {
+  background: #e5e7eb;
+}
+
+.generated-code-copy {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  right: 8px;
+  background: #1f2937;
+  color: #d1d5db;
+}
+
+.generated-code-copy:hover {
+  background: #374151;
+  color: #ffffff;
+}
+
+.generated-code-copy:active {
+  background: #4b5563;
+}
+
+.generated-code-copy.is-copied {
+  color: #86efac;
 }
 
 .generated-code {
@@ -684,7 +716,7 @@ const handleClearLocalCache = async () => {
   border: 1px solid #111827;
   border-radius: 4px;
   background: #111827;
-  padding: 12px;
+  padding: 12px 48px 12px 12px;
   color: #f9fafb;
   font-size: 13px;
   line-height: 20px;

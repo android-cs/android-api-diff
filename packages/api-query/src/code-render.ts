@@ -43,6 +43,11 @@ interface CodeImportPlan {
   conflictingNames: Set<string>;
 }
 
+interface RenderedCode {
+  memberCode: string;
+  code: string;
+}
+
 const primitiveTypeNames = new Set([
   'boolean',
   'byte',
@@ -1284,8 +1289,13 @@ const renderCode = (
   declarations: AndroidApiCodeDeclaration[],
   baselineApiVersion: number | undefined,
   signatureSummaries: Map<string, CodeSignatureSummary>,
-): string => {
-  if (declarations.length === 0) return '';
+): RenderedCode => {
+  if (declarations.length === 0) {
+    return {
+      memberCode: '',
+      code: '',
+    };
+  }
 
   const packageName =
     result.package || getPackageNameFromPath(result.source?.path);
@@ -1312,6 +1322,19 @@ const renderCode = (
     baselineApiVersion,
     signatureSummaries,
   );
+  const memberCode = declarations
+    .map((declaration) =>
+      formatAnnotatedDeclaration(
+        declaration,
+        memberLevel,
+        inInterface,
+        baselineApiVersion,
+        signatureSummaries,
+        result.imports,
+        importPlan.conflictingNames,
+      ),
+    )
+    .join('\n\n');
   const lines: string[] = [];
 
   pushFileHeader(lines, packageName, importPlan.imports);
@@ -1323,29 +1346,19 @@ const renderCode = (
     includeAidlStub,
   );
   lines.push('');
-  declarations.forEach((declaration, index) => {
-    if (index > 0) lines.push('');
-    lines.push(
-      formatAnnotatedDeclaration(
-        declaration,
-        memberLevel,
-        inInterface,
-        baselineApiVersion,
-        signatureSummaries,
-        result.imports,
-        importPlan.conflictingNames,
-      ),
-    );
-  });
+  lines.push(memberCode);
   lines.push('');
   pushClassClosings(lines, displayClassPath);
 
-  return lines.join('\n');
+  return {
+    memberCode,
+    code: lines.join('\n'),
+  };
 };
 
-export const renderAndroidApiCode = (
+export const renderAndroidApiCodeWithMemberCode = (
   result: AndroidApiQueryResult,
-): AndroidApiCodeResult => {
+): AndroidApiCodeResult & { memberCode: string } => {
   const ranges = result.ranges;
   const baselineApiVersion = ranges[0]?.fromApiVersion;
   const lifecycleDeclarations = collectDeclarations(ranges);
@@ -1357,6 +1370,12 @@ export const renderAndroidApiCode = (
     : lifecycleDeclarations;
   const declarations = applyRemapMethodNames(codeDeclarations);
   const signatureSummaries = collectSignatureSummaries(result.ranges);
+  const renderedCode = renderCode(
+    result,
+    declarations,
+    baselineApiVersion,
+    signatureSummaries,
+  );
   return {
     apiName: result.apiName,
     normalizedApiName: result.normalizedApiName,
@@ -1377,11 +1396,15 @@ export const renderAndroidApiCode = (
       signatures: result.summary.signatures,
     },
     declarations,
-    code: renderCode(
-      result,
-      declarations,
-      baselineApiVersion,
-      signatureSummaries,
-    ),
+    memberCode: renderedCode.memberCode,
+    code: renderedCode.code,
   };
+};
+
+export const renderAndroidApiCode = (
+  result: AndroidApiQueryResult,
+): AndroidApiCodeResult => {
+  const { memberCode: _memberCode, ...codeResult } =
+    renderAndroidApiCodeWithMemberCode(result);
+  return codeResult;
 };

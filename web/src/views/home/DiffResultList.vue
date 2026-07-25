@@ -1,12 +1,20 @@
 <script setup lang="ts">
+import MSvg from '@/components/MSvg.vue';
 import { useElementSize } from '@vueuse/core';
 import { shallowRef } from 'vue';
 import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState.ts';
 
 const { androidVersionList, diffTypeReult } = useSharedHomeState();
+const props = defineProps<{
+  copyText?: string;
+}>();
+const emit = defineEmits<{
+  'open-code': [];
+}>();
 
 const viewRef = shallowRef<HTMLElement>();
 const { height } = useElementSize(viewRef);
+const isCopied = shallowRef(false);
 
 const getTagRangeDesc = (range: string[]): string => {
   if (range.length === 1) return range[0].substring(ANDROID_PREFIX_LEN);
@@ -24,6 +32,15 @@ const getTagRangeDesc = (range: string[]): string => {
   }
   return `${st} - ${ed}`;
 };
+
+const copyMemberCode = async () => {
+  if (!props.copyText) return;
+  await navigator.clipboard.writeText(props.copyText);
+  isCopied.value = true;
+  window.setTimeout(() => {
+    isCopied.value = false;
+  }, 1200);
+};
 </script>
 <template>
   <div
@@ -33,44 +50,87 @@ const getTagRangeDesc = (range: string[]): string => {
     class="[--un-duration:500ms]"
     :style="{ height: height && `calc(${height}px + var(--gap))` }"
   >
-    <div
-      v-if="diffTypeReult.length"
-      ref="viewRef"
-      flex
-      flex-wrap
-      gap-row-4px
-      gap-col-24px
-    >
-      <div
-        v-for="item in diffTypeReult"
-        :key="item.typeDesc"
-        flex
-        gap-8px
-        items-center
-      >
-        <div size-16px :style="{ background: item.typeColor }"></div>
+    <div v-if="diffTypeReult.length" ref="viewRef" flex items-start gap-8px>
+      <div flex flex-1 min-w-0 flex-wrap gap-row-4px gap-col-24px>
         <div
-          v-if="item.typeDesc"
-          font-500
-          bg-gray-200
-          px-4px
-          rounded-4px
-          whitespace-pre
+          v-for="item in diffTypeReult"
+          :key="item.typeDesc"
+          flex
+          gap-8px
+          items-center
+          leading-20px
         >
-          {{ item.typeDesc }}
-        </div>
-        <div flex gap-8px flex-wrap>
+          <div size-16px :style="{ background: item.typeColor }"></div>
           <div
-            v-for="range in item.tagRanges"
-            :key="range[0]"
+            v-if="item.typeDesc"
+            font-500
+            bg-gray-200
             px-4px
-            bg-gray-100
             rounded-4px
+            whitespace-pre
           >
-            {{ getTagRangeDesc(range) }}
+            {{ item.typeDesc }}
+          </div>
+          <div flex gap-8px flex-wrap>
+            <div
+              v-for="range in item.tagRanges"
+              :key="range[0]"
+              px-4px
+              bg-gray-100
+              rounded-4px
+            >
+              {{ getTagRangeDesc(range) }}
+            </div>
           </div>
         </div>
       </div>
+      <div v-if="copyText" flex flex-none items-center gap-4px>
+        <button
+          type="button"
+          size-20px
+          p-0
+          flex
+          items-center
+          justify-center
+          b-none
+          rounded-4px
+          bg-transparent
+          cursor-pointer
+          text-gray-500
+          transition-colors
+          hover="bg-gray-100 text-black"
+          active="bg-gray-200"
+          :aria-label="isCopied ? 'Member code copied' : 'Copy member code'"
+          :title="isCopied ? 'Copied' : 'Copy member code'"
+          @click="copyMemberCode"
+        >
+          <MSvg name="copy" size-20px />
+        </button>
+        <button
+          type="button"
+          size-20px
+          p-0
+          flex
+          items-center
+          justify-center
+          b-none
+          rounded-4px
+          bg-transparent
+          cursor-pointer
+          text-gray-500
+          transition-colors
+          hover="bg-gray-100 text-black"
+          active="bg-gray-200"
+          aria-label="Open generated code"
+          title="Open generated code"
+          @click="emit('open-code')"
+        >
+          <MSvg name="code" size-20px />
+        </button>
+      </div>
+      <span sr-only aria-live="polite">
+        {{ isCopied ? 'Member code copied' : '' }}
+      </span>
     </div>
   </div>
 </template>
