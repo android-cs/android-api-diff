@@ -23,13 +23,6 @@ interface CodeDeclarationState {
   toTag: string;
 }
 
-interface ApiVersionRangeVote {
-  count: number;
-  firstIndex: number;
-  lastIndex: number;
-  range: AndroidApiVersionRangeResult;
-}
-
 interface CodeSignatureSummary {
   signature: string;
   ranges: CodeSignatureSummaryRange[];
@@ -203,22 +196,6 @@ const formatMemberIdentityKey = (member: AndroidApiMemberResult): string => {
   }:${member.imports.join(',')}`;
 };
 
-const sortMembers = (members: AndroidApiMemberResult[]) => {
-  return [...members].sort(
-    (a, b) =>
-      getMemberSortWeight(a) - getMemberSortWeight(b) ||
-      a.name.localeCompare(b.name) ||
-      formatMemberIdentityKey(a).localeCompare(formatMemberIdentityKey(b)),
-  );
-};
-
-const getRangeSemanticKey = (range: AndroidApiVersionRangeResult): string => {
-  return JSON.stringify({
-    missingReason: range.missingReason,
-    members: sortMembers(range.members ?? []).map(formatMemberIdentityKey),
-  });
-};
-
 const cloneParameters = (
   member: Extract<ClassMember, { parameters: unknown }>,
 ) => {
@@ -321,79 +298,6 @@ const getApiVersionsInRange = (range: AndroidApiVersionRangeResult) => {
   );
   if (versions.length > 0) return versions;
   return [getAndroidVersionInfo(range.fromApiVersion, range)];
-};
-
-const toApiVersionRange = (
-  info: AndroidVersionInfo,
-  range: AndroidApiVersionRangeResult,
-): AndroidApiVersionRangeResult => {
-  return {
-    fromVersion: info.version,
-    fromAlias: info.alias,
-    fromApiVersion: info.apiVersion,
-    fromTag: range.fromTag,
-    toVersion: info.version,
-    toAlias: info.alias,
-    toApiVersion: info.apiVersion,
-    toTag: range.toTag,
-    ...(range.missingReason ? { missingReason: range.missingReason } : {}),
-    ...(range.members ? { members: sortMembers(range.members) } : {}),
-  };
-};
-
-const updateApiVersionVoteRange = (
-  previous: AndroidApiVersionRangeResult,
-  next: AndroidApiVersionRangeResult,
-): AndroidApiVersionRangeResult => {
-  return {
-    ...next,
-    fromTag: previous.fromTag,
-    toTag: next.toTag,
-  };
-};
-
-const chooseApiVersionVote = (votes: ApiVersionRangeVote[]) => {
-  return votes.sort(
-    (a, b) =>
-      b.count - a.count ||
-      b.lastIndex - a.lastIndex ||
-      a.firstIndex - b.firstIndex,
-  )[0]!;
-};
-
-const collapseRangesByApiVersion = (
-  ranges: AndroidApiVersionRangeResult[],
-): AndroidApiVersionRangeResult[] => {
-  const votesByApiVersion = new Map<number, Map<string, ApiVersionRangeVote>>();
-
-  ranges.forEach((range, index) => {
-    for (const info of getApiVersionsInRange(range)) {
-      const normalizedRange = toApiVersionRange(info, range);
-      const key = getRangeSemanticKey(normalizedRange);
-      let votes = votesByApiVersion.get(info.apiVersion);
-      if (!votes) {
-        votes = new Map();
-        votesByApiVersion.set(info.apiVersion, votes);
-      }
-      const vote = votes.get(key);
-      if (vote) {
-        vote.count++;
-        vote.lastIndex = index;
-        vote.range = updateApiVersionVoteRange(vote.range, normalizedRange);
-      } else {
-        votes.set(key, {
-          count: 1,
-          firstIndex: index,
-          lastIndex: index,
-          range: normalizedRange,
-        });
-      }
-    }
-  });
-
-  return Array.from(votesByApiVersion.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([, votes]) => chooseApiVersionVote(Array.from(votes.values())).range);
 };
 
 const completeDeclaration = (
@@ -706,14 +610,18 @@ const formatSignatureSummaryComment = (
     .join(', ');
 };
 
-const needsLifecycleComment = (summary: CodeSignatureSummary | undefined) => {
-  if (!summary) return false;
-  if (summary.ranges.length !== 1) return true;
-  const range = summary.ranges[0]!;
-  return (
-    !startsAtFirstCheckedTag(range, summary) ||
-    !endsAtLastCheckedTag(range, summary)
-  );
+const supportsLifecycleAnnotations = (
+  signatureSummaries: Map<string, CodeSignatureSummary>,
+) => {
+  if (signatureSummaries.size === 0) return false;
+  return Array.from(signatureSummaries.values()).every((summary) => {
+    if (summary.ranges.length !== 1) return false;
+    const range = summary.ranges[0]!;
+    return (
+      startsAtFirstCheckedTag(range, summary) &&
+      endsAtLastCheckedTag(range, summary)
+    );
+  });
 };
 
 const getTopLevelNameFromPath = (path: string | undefined): string => {
@@ -968,16 +876,6 @@ const getDeclarationIdentityKey = (declaration: AndroidApiCodeDeclaration) => {
   return formatMemberIdentityKey(member);
 };
 
-const supportsLifecycleAnnotations = (
-  declaration: AndroidApiCodeDeclaration,
-  signatureSummaries: Map<string, CodeSignatureSummary>,
-) => {
-  const summary = signatureSummaries.get(
-    getDeclarationIdentityKey(declaration),
-  );
-  return summary?.ranges.length === 1;
-};
-
 const formatAnnotatedDeclaration = (
   declaration: AndroidApiCodeDeclaration,
   level: number,
@@ -991,13 +889,15 @@ const formatAnnotatedDeclaration = (
   const signatureSummary = signatureSummaries.get(
     getDeclarationIdentityKey(declaration),
   );
-  if (needsLifecycleComment(signatureSummary)) {
+  const useLifecycleAnnotations =
+    supportsLifecycleAnnotations(signatureSummaries);
+  if (!useLifecycleAnnotations) {
     const comment = formatSignatureSummaryComment(signatureSummary);
     if (comment) {
       lines.push(`${indent(level)}// ${comment}`);
     }
   }
-  if (supportsLifecycleAnnotations(declaration, signatureSummaries)) {
+  if (useLifecycleAnnotations) {
     if (
       baselineApiVersion === undefined ||
       declaration.requiresApi.apiVersion > baselineApiVersion
@@ -1251,6 +1151,8 @@ const collectImports = (
   signatureSummaries: Map<string, CodeSignatureSummary>,
 ): CodeImportPlan => {
   const imports = new Set<string>();
+  const useLifecycleAnnotations =
+    supportsLifecycleAnnotations(signatureSummaries);
 
   if (aidlInterface) {
     addImport(imports, packageName, 'android.os.Binder');
@@ -1265,7 +1167,7 @@ const collectImports = (
   }
 
   for (const declaration of declarations) {
-    if (supportsLifecycleAnnotations(declaration, signatureSummaries)) {
+    if (useLifecycleAnnotations) {
       if (needsRequiresApiAnnotation(declaration, baselineApiVersion)) {
         addImport(imports, packageName, 'android.os.Build');
         addImport(imports, packageName, 'androidx.annotation.RequiresApi');
@@ -1444,7 +1346,7 @@ const renderCode = (
 export const renderAndroidApiCode = (
   result: AndroidApiQueryResult,
 ): AndroidApiCodeResult => {
-  const ranges = collapseRangesByApiVersion(result.ranges);
+  const ranges = result.ranges;
   const baselineApiVersion = ranges[0]?.fromApiVersion;
   const lifecycleDeclarations = collectDeclarations(ranges);
   const hasComplexDeclarationLifecycle = hasComplexLifecycle(

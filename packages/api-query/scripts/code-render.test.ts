@@ -591,8 +591,8 @@ const baseResult = (
   );
 
   assert.equal(result.declarations.length, 2);
-  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
-  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.DeprecatedSinceApi/);
   assert.match(result.code, /import android\.content\.pm\.UserInfo;/);
   assert.match(
     result.code,
@@ -604,11 +604,135 @@ const baseResult = (
   );
   assert.match(
     result.code,
-    /\/\/ 11 - 16\.0\.0_r2\n\s+@RequiresApi\(Build\.VERSION_CODES\.R\)\n\s+@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.BAKLAVA\)\n\s+List<UserInfo> getUsers\(boolean excludePartial, boolean excludeDying, boolean excludePreCreated\);/,
+    /\/\/ 11 - 16\.0\.0_r2\n\s+List<UserInfo> getUsers\(boolean excludePartial, boolean excludeDying, boolean excludePreCreated\);/,
   );
   assert.equal(
     (result.code.match(/getUsers\(boolean excludeDying\)/g) ?? []).length,
     1,
+  );
+}
+
+{
+  const legacyMethod = method(
+    'void',
+    [
+      { name: 'packageName', type: 'String' },
+      { name: 'permissionName', type: 'String' },
+      { name: 'userId', type: 'int' },
+      { name: 'reason', type: 'String' },
+    ],
+    'revokeRuntimePermission',
+  );
+  const deviceIdMethod = method(
+    'void',
+    [
+      { name: 'packageName', type: 'String' },
+      { name: 'permissionName', type: 'String' },
+      { name: 'deviceId', type: 'int' },
+      { name: 'userId', type: 'int' },
+      { name: 'reason', type: 'String' },
+    ],
+    'revokeRuntimePermission',
+  );
+  const persistentDeviceIdMethod = method(
+    'void',
+    [
+      { name: 'packageName', type: 'String' },
+      { name: 'permissionName', type: 'String' },
+      { name: 'persistentDeviceId', type: 'String' },
+      { name: 'userId', type: 'int' },
+      { name: 'reason', type: 'String' },
+    ],
+    'revokeRuntimePermission',
+  );
+  const result = renderAndroidApiCode(
+    baseResult(
+      'IPermissionManager.revokeRuntimePermission',
+      'core/java/android/permission/IPermissionManager.aidl',
+      ['IPermissionManager', 'revokeRuntimePermission'],
+      [
+        {
+          ...rangeSpan(
+            '11',
+            'R',
+            30,
+            'android-11.0.0_r1',
+            '14',
+            'UPSIDE_DOWN_CAKE',
+            34,
+            'android-14.0.0_r28',
+            [legacyMethod],
+          ),
+          fromTagPosition: 'first-checked' as const,
+        },
+        rangeSpan(
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r29',
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r37',
+          [deviceIdMethod],
+        ),
+        rangeSpan(
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r38',
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r45',
+          [legacyMethod],
+        ),
+        rangeSpan(
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r46',
+          '14',
+          'UPSIDE_DOWN_CAKE',
+          34,
+          'android-14.0.0_r49',
+          [],
+          'source-file-not-found',
+        ),
+        {
+          ...rangeSpan(
+            '14',
+            'UPSIDE_DOWN_CAKE',
+            34,
+            'android-14.0.0_r50',
+            '17',
+            'CINNAMON_BUN',
+            37,
+            'android-17.0.0_r1',
+            [persistentDeviceIdMethod],
+          ),
+          toTagPosition: 'last-checked' as const,
+        },
+      ],
+    ),
+  );
+
+  assert.equal(result.declarations.length, 3);
+  assert.doesNotMatch(result.code, /@RequiresApi/);
+  assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
+  assert.doesNotMatch(result.code, /import android\.os\.Build;/);
+  assert.match(
+    result.code,
+    /\/\/ 11 - 14\.0\.0_r28, 14\.0\.0_r38 - 14\.0\.0_r45\n\s+void revokeRuntimePermission\(String packageName, String permissionName, int userId, String reason\);/,
+  );
+  assert.match(
+    result.code,
+    /\/\/ 14\.0\.0_r29 - 14\.0\.0_r37\n\s+void revokeRuntimePermission\(String packageName, String permissionName, int deviceId, int userId, String reason\);/,
+  );
+  assert.match(
+    result.code,
+    /\/\/ 14\.0\.0_r50 - 17\n\s+void revokeRuntimePermission\(String packageName, String permissionName, String persistentDeviceId, int userId, String reason\);/,
   );
 }
 
@@ -662,12 +786,12 @@ const baseResult = (
   assert.match(result.code, /import android\.os\.IBinder;/);
   assert.match(result.code, /import android\.os\.IInterface;/);
   assert.match(result.code, /import java\.util\.List;/);
-  assert.match(result.code, /import androidx\.annotation\.RequiresApi;/);
-  assert.match(result.code, /import androidx\.annotation\.DeprecatedSinceApi;/);
-  assert.match(result.code, /import android\.os\.Build;/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.RequiresApi/);
+  assert.doesNotMatch(result.code, /androidx\.annotation\.DeprecatedSinceApi/);
+  assert.doesNotMatch(result.code, /import android\.os\.Build;/);
   assert.match(
     result.code,
-    /@DeprecatedSinceApi\(api = Build\.VERSION_CODES\.S\)\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
+    /\/\/ 10\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum\);/,
   );
   assert.match(
     result.code,
@@ -675,7 +799,7 @@ const baseResult = (
   );
   assert.match(
     result.code,
-    /\/\/ 13 - 13\.0\.0_r2\n\s+@RequiresApi\(Build\.VERSION_CODES\.TIRAMISU\)\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
+    /\/\/ 13 - 13\.0\.0_r2\n\s+List<ActivityManager\.RunningTaskInfo> getTasks\(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId\);/,
   );
 }
 
