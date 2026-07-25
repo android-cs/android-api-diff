@@ -3,7 +3,7 @@
 <!-- Keep only the latest release notes here. Do not include a version number or
 append older releases. Replace the entries below when publishing a new release. -->
 
-- Generate `@RequiresApi` and `@DeprecatedSinceApi` for overload lifecycles
-  that align with Android API boundaries.
-- Keep exact tag-range comments only when a signature changes within an Android
-  API version or disappears and later returns.
+- Preserve signatures that exist only in part of an Android release instead of
+  dropping them during code generation.
+- Emit lifecycle annotations only when every signature spans complete Android
+  API boundaries; otherwise keep exact tag-range comments.
