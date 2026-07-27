@@ -1,6 +1,6 @@
 {
   "name": "@android-cs/api-query",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -8,7 +8,7 @@
     "directory": "packages/api-query"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26.5.0"
   },
   "publishConfig": {
     "access": "public",

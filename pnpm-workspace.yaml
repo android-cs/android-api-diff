@@ -3,10 +3,8 @@ packages:
   - web
 
 catalog:
-  '@modelcontextprotocol/server': ^2.0.0-beta.3
-  '@tsconfig/node20': ^20.1.9
   '@types/lodash-es': ^4.17.12
-  '@types/node': ^25.9.3
+  '@types/node': ^26.1.1
   '@vitejs/plugin-legacy': ^8.0.2
   '@vitejs/plugin-vue': ^6.0.7
   '@vue/tsconfig': ^0.9.1
@@ -27,7 +25,6 @@ catalog:
   vue: ^3.5.38
   vue-router: ^5.1.0
   vue-tsc: ^3.3.5
-  zod: ^4.4.3
 
 catalogMode: strict
 cleanupUnusedCatalogs: true

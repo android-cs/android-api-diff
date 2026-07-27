@@ -328,12 +328,12 @@ const handleClearLocalCache = async () => {
       <MinSdkSelect />
       <DiffConcurrentSelect />
       <RouterLink
-        to="/mcp"
+        to="/cli"
         text-black
         transition-color
         hover="color-[rgb(from_currentColor_r_g_b_/_50%)]"
       >
-        MCP
+        CLI + Skill
       </RouterLink>
       <a
         href="https://github.com/lisonge/remap"

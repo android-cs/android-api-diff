@@ -1,7 +1,7 @@
 import { createWebHistory, createRouter } from 'vue-router';
 
 const homeFc = () => import('./views/home/HomePage.vue');
-const mcpFc = () => import('./views/mcp/MCPPage.vue');
+const cliFc = () => import('./views/cli/CLIPage.vue');
 export default createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -20,8 +20,8 @@ export default createRouter({
       component: homeFc,
     },
     {
-      path: '/mcp',
-      component: mcpFc,
+      path: '/cli',
+      component: cliFc,
     },
     {
       path: '/:pathMatch(.*)*',

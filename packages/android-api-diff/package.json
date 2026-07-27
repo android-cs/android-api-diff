@@ -1,38 +1,45 @@
 {
-  "name": "@android-cs/api-diff-mcp",
-  "version": "0.1.4",
+  "name": "android-api-diff",
+  "version": "0.2.0",
+  "description": "Inspect Android framework API changes and generate hidden-API Java code",
   "type": "module",
+  "keywords": [
+    "android",
+    "api",
+    "diff",
+    "cli",
+    "hidden-api"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/android-cs/android-api-diff",
-    "directory": "packages/api-diff-mcp"
+    "directory": "packages/android-api-diff"
   },
   "engines": {
-    "node": ">=24.15"
+    "node": ">=26.5.0"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
     "bin": {
-      "android-api-diff-mcp": "./dist/index.js"
+      "android-api-diff": "./dist/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "bin": {
-    "android-api-diff-mcp": "./src/index.ts"
+    "android-api-diff": "./src/index.ts"
   },
   "scripts": {
     "build": "tsdown",
     "prepublishOnly": "tsdown",
     "start": "node src/index.ts",
+    "test:cli": "node --test src/cli.test.ts",
     "test:cache": "node --test src/nodeRuntime.test.ts src/nodeNetwork.test.ts",
     "type-check": "tsc"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "catalog:",
-    "@android-cs/api-query": "workspace:*",
-    "zod": "catalog:"
+    "@android-cs/api-query": "workspace:*"
   }
 }

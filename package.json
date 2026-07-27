@@ -1,7 +1,11 @@
 {
-  "name": "android-api-diff",
+  "name": "@android-cs/android-api-diff-workspace",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=26.5.0"
+  },
   "scripts": {
     "type-check": "pnpm -r type-check",
     "dev": "pnpm -F @android-cs/web dev",
@@ -10,7 +14,6 @@
     "format": "prettier --cache --write --ignore-unknown ."
   },
   "dependencies": {
-    "@tsconfig/node20": "catalog:",
     "@types/lodash-es": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-legacy": "catalog:",
@@ -37,7 +40,7 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": ">=24.15",
+      "version": ">=26.5.0",
       "onFail": "error"
     },
     "packageManager": {

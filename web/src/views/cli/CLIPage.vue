@@ -6,63 +6,60 @@ import {
   searchFilePathByRefName,
   toAndroidApiResolution,
   type AndroidApiQueryRuntime,
-  type AndroidApiCodeResult,
   type QueryAndroidApiOptions,
 } from '@android-cs/api-query';
 import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { computed, ref } from 'vue';
 
-type ToolName =
-  | 'resolve_android_api'
-  | 'generate_android_api_code'
-  | 'query_android_api'
-  | 'warm_android_api_cache';
+type CommandName = 'resolve' | 'query' | 'generate' | 'preload';
 
-interface ToolOption {
-  name: ToolName;
+interface CommandOption {
+  name: CommandName;
   label: string;
   description: string;
 }
 
-const tools: ToolOption[] = [
+const commands: CommandOption[] = [
   {
-    name: 'resolve_android_api',
+    name: 'resolve',
     label: 'Resolve',
-    description: 'Resolve an API name to file, target path, and target kind.',
+    description:
+      'Resolve an API name to its file, target path, and target kind.',
   },
   {
-    name: 'query_android_api',
+    name: 'query',
     label: 'Query',
     description:
-      'Fetch cross-version ranges, signatures, and source coordinates.',
+      'Inspect cross-version ranges, signatures, and source coordinates.',
   },
   {
-    name: 'generate_android_api_code',
-    label: 'Code',
-    description: 'Generate a Java hidden-API skeleton from diff ranges.',
+    name: 'generate',
+    label: 'Generate',
+    description: 'Generate Java hidden-API code with one command.',
   },
   {
-    name: 'warm_android_api_cache',
-    label: 'Warm',
-    description: 'Run several API queries to preload browser-side fetch cache.',
+    name: 'preload',
+    label: 'Preload',
+    description: 'Preload several API queries before a larger task.',
   },
 ];
 
-const activeToolName = ref<ToolName>('query_android_api');
+const activeCommandName = ref<CommandName>('query');
 const apiName = ref('IActivityManager.getTasks');
 const apiNamesText = ref(
   ['IActivityManager.getTasks', 'ActivityThread.currentApplication'].join('\n'),
 );
 const minSdk = ref<string | number>('35');
-const concurrency = ref<string | number>('3');
 const loading = ref(false);
 const errorText = ref('');
 const resultText = ref('');
 const copiedKey = ref('');
 
-const activeTool = computed(
-  () => tools.find((tool) => tool.name === activeToolName.value)!,
+const cliInstallCommand = 'npx android-api-diff@latest install';
+
+const activeCommand = computed(
+  () => commands.find((command) => command.name === activeCommandName.value)!,
 );
 
 const browserRuntime: AndroidApiQueryRuntime = {
@@ -79,69 +76,43 @@ const parseOptionalNumber = (
   return Number.isFinite(number) ? number : undefined;
 };
 
-const parseConcurrency = (
-  value: string | number | null | undefined,
-): number | undefined => {
-  const number = parseOptionalNumber(value);
-  if (number === undefined) return;
-  return Math.min(8, Math.max(1, Math.floor(number)));
-};
-
 const getVersionOptions = () => {
   return {
     minSdk: parseOptionalNumber(minSdk.value),
   };
 };
 
-const getMcpQueryArguments = (name = apiName.value) => {
+const getQueryOptions = (name = apiName.value): QueryAndroidApiOptions => {
   return {
     apiName: name.trim(),
     ...getVersionOptions(),
+    concurrency: 5,
   };
 };
 
-const getQueryOptions = (name = apiName.value): QueryAndroidApiOptions => {
-  return {
-    ...getMcpQueryArguments(name),
-    concurrency: parseConcurrency(concurrency.value),
-  };
-};
-
-const getWarmApiNames = (): string[] => {
+const getPreloadApiNames = (): string[] => {
   return apiNamesText.value
     .split(/[\n,]/g)
     .map((item) => item.trim())
     .filter(Boolean);
 };
 
-const requestPayload = computed(() => {
-  if (activeToolName.value === 'resolve_android_api') {
-    return {
-      tool: activeToolName.value,
-      arguments: {
-        apiName: apiName.value.trim(),
-      },
-    };
+const quoteArgument = (value: string): string => JSON.stringify(value.trim());
+
+const minSdkArgument = computed(() => {
+  const value = parseOptionalNumber(minSdk.value);
+  return value === undefined ? '' : ` --min-sdk ${value}`;
+});
+
+const commandText = computed(() => {
+  if (activeCommandName.value === 'resolve') {
+    return `android-api-diff resolve ${quoteArgument(apiName.value)}`;
   }
-  if (activeToolName.value === 'query_android_api') {
-    return {
-      tool: activeToolName.value,
-      arguments: getMcpQueryArguments(),
-    };
+  if (activeCommandName.value === 'preload') {
+    const names = getPreloadApiNames().map(quoteArgument).join(' ');
+    return `android-api-diff preload ${names}${minSdkArgument.value}`;
   }
-  if (activeToolName.value === 'generate_android_api_code') {
-    return {
-      tool: activeToolName.value,
-      arguments: getMcpQueryArguments(),
-    };
-  }
-  return {
-    tool: activeToolName.value,
-    arguments: {
-      apiNames: getWarmApiNames(),
-      ...getVersionOptions(),
-    },
-  };
+  return `android-api-diff ${activeCommandName.value} ${quoteArgument(apiName.value)}${minSdkArgument.value}`;
 });
 
 const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
@@ -154,66 +125,65 @@ const copyText = async (key: string, value: string) => {
   }, 1200);
 };
 
-const runResolveTool = async () => {
+const runResolvePreview = async () => {
+  const name = apiName.value.trim();
   const files = await loadAidlJavaFiles(browserRuntime);
   return {
-    tool: 'resolve_android_api',
-    arguments: {
-      apiName: apiName.value.trim(),
-    },
-    result: toAndroidApiResolution(
-      searchFilePathByRefName(apiName.value, files),
-    ),
+    apiName: name,
+    result:
+      toAndroidApiResolution(searchFilePathByRefName(name, files)) ?? null,
   };
 };
 
-const runQueryTool = async () => {
+const runQueryPreview = async () => {
   return queryAndroidApi(browserRuntime, getQueryOptions());
 };
 
-const runCodeTool = async () => {
+const runGeneratePreview = async () => {
   return generateAndroidApiCode(browserRuntime, getQueryOptions());
 };
 
-const runWarmTool = async () => {
+const runPreloadPreview = async () => {
   const results = [];
-  for (const name of getWarmApiNames()) {
+  for (const name of getPreloadApiNames()) {
     const result = await queryAndroidApi(browserRuntime, getQueryOptions(name));
     results.push({
       apiName: name,
       checkedTags: result.summary.checkedTags,
       foundTags: result.summary.foundTags,
       rangeCount: result.summary.rangeCount,
-      signatures: result.summary.signatures,
     });
   }
   return {
-    tool: 'warm_android_api_cache',
-    result: results,
+    cacheDir: 'browser storage (preview only)',
+    results,
   };
 };
 
-const runActiveTool = async () => {
+const runActiveCommand = async () => {
   errorText.value = '';
   resultText.value = '';
   loading.value = true;
   try {
     const result =
-      activeToolName.value === 'resolve_android_api'
-        ? await runResolveTool()
-        : activeToolName.value === 'generate_android_api_code'
-          ? await runCodeTool()
-          : activeToolName.value === 'query_android_api'
-            ? await runQueryTool()
-            : await runWarmTool();
-    const codeResult = result as Partial<AndroidApiCodeResult>;
-    resultText.value =
-      activeToolName.value === 'generate_android_api_code' && codeResult.code
-        ? codeResult.code
-        : formatJson(result);
+      activeCommandName.value === 'resolve'
+        ? await runResolvePreview()
+        : activeCommandName.value === 'generate'
+          ? await runGeneratePreview()
+          : activeCommandName.value === 'query'
+            ? await runQueryPreview()
+            : await runPreloadPreview();
+    const response = {
+      ok: true,
+      command: activeCommandName.value,
+      result,
+    };
+    resultText.value = formatJson(response);
   } catch (error) {
     errorText.value =
-      error instanceof Error ? error.message : formatJson(error ?? 'Unknown');
+      error instanceof Error
+        ? error.message
+        : formatJson(error ?? 'Unknown error');
   } finally {
     loading.value = false;
   }
@@ -240,7 +210,7 @@ const runActiveTool = async () => {
           android-api-diff
         </RouterLink>
         <div h-16px w-1px bg-gray-300></div>
-        <div text-20px font-500>MCP</div>
+        <div text-20px font-500>CLI + Skill</div>
         <div flex-1></div>
         <a
           href="https://github.com/android-cs/android-api-diff"
@@ -254,27 +224,45 @@ const runActiveTool = async () => {
         </a>
       </header>
 
+      <section>
+        <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px min-w-0>
+          <div text-12px uppercase tracking-1px text-gray-500 mb-8px>
+            Install CLI + Skill
+          </div>
+          <div flex items-start gap-8px>
+            <code class="cli-inline-code" flex-1>{{ cliInstallCommand }}</code>
+            <button
+              type="button"
+              class="text-button"
+              @click="copyText('cli-install', cliInstallCommand)"
+            >
+              {{ copiedKey === 'cli-install' ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <main grid grid-cols-1 lg:grid-cols="[340px_minmax(0,1fr)]" gap-16px>
         <section flex flex-col gap-12px min-w-0>
           <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px>
             <div text-12px uppercase tracking-1px text-gray-500 mb-8px>
-              Playground
+              Command builder
             </div>
-            <div text-22px leading-28px mb-8px>Run MCP tools</div>
+            <div text-22px leading-28px mb-8px>Copy one command</div>
             <p m-0 text-gray-600 leading-20px break-words>
-              Trigger the same Android API capabilities exposed by the MCP
-              server from this browser page.
+              The CLI starts only for the current request. The Skill teaches
+              Codex which command to choose.
             </p>
           </div>
 
           <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px>
             <div text-12px uppercase tracking-1px text-gray-500 mb-10px>
-              Tool
+              Command
             </div>
             <div flex flex-col gap-8px>
               <button
-                v-for="tool in tools"
-                :key="tool.name"
+                v-for="command in commands"
+                :key="command.name"
                 type="button"
                 w-full
                 min-w-0
@@ -286,18 +274,18 @@ const runActiveTool = async () => {
                 cursor-pointer
                 transition-colors
                 :class="
-                  activeToolName === tool.name
+                  activeCommandName === command.name
                     ? 'bg-gray-950 text-white b-gray-950'
                     : 'bg-white b-gray-200 hover:bg-gray-50'
                 "
-                @click="activeToolName = tool.name"
+                @click="activeCommandName = command.name"
               >
                 <div flex flex-wrap items-center gap-8px min-w-0>
-                  <span text-15px>{{ tool.label }}</span>
-                  <code text-11px opacity-80 break-all>{{ tool.name }}</code>
+                  <span text-15px>{{ command.label }}</span>
+                  <code text-11px opacity-80 break-all>{{ command.name }}</code>
                 </div>
                 <div mt-5px text-12px opacity-75 leading-16px break-words>
-                  {{ tool.description }}
+                  {{ command.description }}
                 </div>
               </button>
             </div>
@@ -306,30 +294,25 @@ const runActiveTool = async () => {
           <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px>
             <div flex items-center gap-8px mb-8px>
               <div text-12px uppercase tracking-1px text-gray-500 flex-1>
-                Request
+                Shell command
               </div>
               <button
                 type="button"
-                b-none
-                bg-transparent
-                p-0
-                cursor-pointer
-                text-gray-500
-                hover="text-black"
-                @click="copyText('request', formatJson(requestPayload))"
+                class="text-button"
+                @click="copyText('command', commandText)"
               >
-                {{ copiedKey === 'request' ? 'Copied' : 'Copy' }}
+                {{ copiedKey === 'command' ? 'Copied' : 'Copy' }}
               </button>
             </div>
             <pre
-              class="mcp-code"
+              class="cli-code"
               m-0
               p-10px
               rounded-4px
               bg-gray-950
               text-gray-50
               leading-20px
-            ><code>{{ formatJson(requestPayload) }}</code></pre>
+            ><code>{{ commandText }}</code></pre>
           </div>
         </section>
 
@@ -337,9 +320,9 @@ const runActiveTool = async () => {
           <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px>
             <div flex flex-wrap items-center gap-8px mb-12px>
               <div>
-                <h1 m-0 text-20px font-500>{{ activeTool.label }}</h1>
+                <h1 m-0 text-20px font-500>{{ activeCommand.label }}</h1>
                 <div text-12px text-blue-700 mt-2px break-all>
-                  {{ activeTool.name }}
+                  android-api-diff {{ activeCommand.name }}
                 </div>
               </div>
               <div flex-1></div>
@@ -355,14 +338,24 @@ const runActiveTool = async () => {
                 cursor-pointer
                 :disabled="loading"
                 :class="{ 'cursor-wait opacity-70': loading }"
-                @click="runActiveTool"
+                @click="runActiveCommand"
               >
-                {{ loading ? 'Running' : 'Run' }}
+                {{ loading ? 'Running preview' : 'Run browser preview' }}
               </button>
             </div>
 
+            <p m="0 0 12px" text-12px text-gray-500 leading-18px>
+              The preview uses the browser query core and mirrors the CLI JSON
+              response shape. Copy the shell command to run the local CLI.
+            </p>
+
             <div grid grid-cols-1 md:grid-cols-2 gap-12px>
-              <label flex flex-col gap-6px>
+              <label
+                v-if="activeCommandName !== 'preload'"
+                flex
+                flex-col
+                gap-6px
+              >
                 <span text-12px uppercase tracking-1px text-gray-500>
                   API name
                 </span>
@@ -380,12 +373,7 @@ const runActiveTool = async () => {
                 />
               </label>
 
-              <label
-                v-if="activeToolName === 'warm_android_api_cache'"
-                flex
-                flex-col
-                gap-6px
-              >
+              <label v-else flex flex-col gap-6px>
                 <span text-12px uppercase tracking-1px text-gray-500>
                   API names
                 </span>
@@ -403,45 +391,29 @@ const runActiveTool = async () => {
                 ></textarea>
               </label>
 
-              <template v-if="activeToolName !== 'resolve_android_api'">
-                <label flex flex-col gap-6px>
-                  <span text-12px uppercase tracking-1px text-gray-500>
-                    minSdk
-                  </span>
-                  <input
-                    v-model="minSdk"
-                    type="number"
-                    b-1px
-                    b-solid
-                    b-gray-200
-                    rounded-4px
-                    px-8px
-                    py-6px
-                    outline-none
-                    focus="b-gray-500"
-                  />
-                </label>
-                <label flex flex-col gap-6px>
-                  <span text-12px uppercase tracking-1px text-gray-500>
-                    concurrency
-                  </span>
-                  <input
-                    v-model="concurrency"
-                    type="number"
-                    min="1"
-                    max="8"
-                    step="1"
-                    b-1px
-                    b-solid
-                    b-gray-200
-                    rounded-4px
-                    px-8px
-                    py-6px
-                    outline-none
-                    focus="b-gray-500"
-                  />
-                </label>
-              </template>
+              <label
+                v-if="activeCommandName !== 'resolve'"
+                flex
+                flex-col
+                gap-6px
+              >
+                <span text-12px uppercase tracking-1px text-gray-500>
+                  minSdk
+                </span>
+                <input
+                  v-model="minSdk"
+                  type="number"
+                  min="1"
+                  b-1px
+                  b-solid
+                  b-gray-200
+                  rounded-4px
+                  px-8px
+                  py-6px
+                  outline-none
+                  focus="b-gray-500"
+                />
+              </label>
             </div>
           </div>
 
@@ -456,23 +428,18 @@ const runActiveTool = async () => {
             p-14px
           >
             <div text-12px uppercase tracking-1px mb-8px>Error</div>
-            <pre class="mcp-code" m-0 leading-20px>{{ errorText }}</pre>
+            <pre class="cli-code" m-0 leading-20px>{{ errorText }}</pre>
           </div>
 
           <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px min-w-0>
             <div flex items-center gap-8px mb-8px>
               <div text-12px uppercase tracking-1px text-gray-500 flex-1>
-                Result
+                Preview result
               </div>
               <button
                 v-if="resultText"
                 type="button"
-                b-none
-                bg-transparent
-                p-0
-                cursor-pointer
-                text-gray-500
-                hover="text-black"
+                class="text-button"
                 @click="copyText('result', resultText)"
               >
                 {{ copiedKey === 'result' ? 'Copied' : 'Copy' }}
@@ -485,7 +452,7 @@ const runActiveTool = async () => {
               rounded-4px
               p-12px
             >
-              Click Run to call the selected MCP tool capability.
+              Run the browser preview, or copy the command to use the CLI.
             </div>
             <div
               v-else-if="loading"
@@ -498,7 +465,7 @@ const runActiveTool = async () => {
             </div>
             <pre
               v-else
-              class="mcp-code"
+              class="cli-code"
               m-0
               p-10px
               rounded-4px
@@ -514,9 +481,29 @@ const runActiveTool = async () => {
 </template>
 
 <style scoped>
-.mcp-code {
+.cli-code,
+.cli-inline-code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-all;
+  word-break: break-word;
+}
+
+.cli-inline-code {
+  min-width: 0;
+  color: #1f2937;
+  line-height: 20px;
+}
+
+.text-button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: #111827;
 }
 </style>

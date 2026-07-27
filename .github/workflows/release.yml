@@ -18,20 +18,19 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
+          package-manager-cache: false
 
       - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
 
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
 
       - run: |
-          pnpm -F @android-cs/api-parser publish --no-git-checks
-          pnpm -F @android-cs/api-query publish --no-git-checks
-          pnpm -F @android-cs/api-diff-mcp publish --no-git-checks
+          pnpm -F @android-cs/api-parser publish --no-git-checks --provenance
+          pnpm -F @android-cs/api-query publish --no-git-checks --provenance
+          pnpm -F android-api-diff publish --no-git-checks --provenance
 
-      - uses: actions/create-release@v1
+      - run: gh release create "$GITHUB_REF_NAME" --title "Release $GITHUB_REF_NAME" --notes-file CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          body_path: ./CHANGELOG.md

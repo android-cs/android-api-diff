@@ -3,7 +3,11 @@
 <!-- Keep only the latest release notes here. Do not include a version number or
 append older releases. Replace the entries below when publishing a new release. -->
 
-- Preserve signatures that exist only in part of an Android release instead of
-  dropping them during code generation.
-- Emit lifecycle annotations only when every signature spans complete Android
-  API boundaries; otherwise keep exact tag-range comments.
+- Replace the always-on MCP server with the on-demand `android-api-diff` CLI.
+- Add a project-local Codex Skill that routes API inspection and code-generation
+  requests to the CLI without redundant calls.
+- Publish the CLI under the unscoped `android-api-diff` package name so the
+  package and executable use the same name.
+- Add `android-api-diff install` as a one-command global CLI and Codex Skill
+  installer, with the Skill pinned to the matching release tag.
+- Require Node.js 26.5.0 or newer across the workspace and published packages.
