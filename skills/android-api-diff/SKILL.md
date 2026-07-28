@@ -49,8 +49,10 @@ layer already retries transient fetches.
 If `android-api-diff` is not installed, stop and tell the user to run:
 
 ```sh
-npx android-api-diff@latest install
+npm install --global android-api-diff@latest
+android-api-diff skill install
 ```
 
-Do not implement or simulate version checks. The package manager owns update
-detection and upgrades.
+Run the Skill command from the root of the current Git or Gradle project so it
+remains project-scoped. Do not implement or simulate version checks. The
+package manager owns CLI update detection and upgrades.

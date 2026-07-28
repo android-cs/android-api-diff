@@ -1,6 +1,6 @@
 {
   "name": "android-api-diff",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Inspect Android framework API changes and generate hidden-API Java code",
   "type": "module",
   "keywords": [
@@ -40,6 +40,7 @@
     "type-check": "tsc"
   },
   "dependencies": {
-    "@android-cs/api-query": "workspace:*"
+    "@android-cs/api-query": "workspace:*",
+    "skills": "1.5.20"
   }
 }

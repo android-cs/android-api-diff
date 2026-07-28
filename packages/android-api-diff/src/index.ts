@@ -13,9 +13,11 @@ import { queryAndroidApi } from '@android-cs/api-query/query';
 import packageJson from '../package.json' with { type: 'json' };
 import {
   createNodeInstallRuntime,
-  installCliAndSkill,
+  installSkill,
   InstallCommandError,
+  removeSkill,
   type InstallRuntime,
+  type SkillScope,
 } from './installer.ts';
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
 
@@ -42,8 +44,10 @@ export type CliRequest =
       format: CliFormat;
     }
   | {
-      command: 'install';
+      action: 'install' | 'remove';
+      command: 'skill';
       format: CliFormat;
+      skillScope: SkillScope;
     }
   | {
       command: 'help';
@@ -63,6 +67,7 @@ interface CliIo {
 }
 
 interface ExecuteContext {
+  cwd: string;
   installRuntime: InstallRuntime;
   runtime: AndroidApiQueryRuntime;
   signal: AbortSignal;
@@ -73,6 +78,7 @@ export interface RunCliOptions {
   io?: CliIo;
   signal?: AbortSignal;
   runtime?: AndroidApiQueryRuntime;
+  cwd?: string;
   installRuntime?: InstallRuntime;
   execute?: (
     request: Exclude<CliRequest, { command: 'help' | 'version' }>,
@@ -93,11 +99,13 @@ Usage:
   android-api-diff query <api-name> [--min-sdk <api>] [--format json|pretty]
   android-api-diff generate <api-name> [--min-sdk <api>] [--format json|pretty]
   android-api-diff preload <api-name...> [--min-sdk <api>] [--format json|pretty]
-  android-api-diff install [--format json|pretty]
+  android-api-diff skill install [--skill-scope project|global] [--format json|pretty]
+  android-api-diff skill remove [--skill-scope project|global] [--format json|pretty]
 
 Options:
   --min-sdk <api>       Lowest Android API level to inspect
   --format <format>     Output format: json (default) or pretty
+  --skill-scope <scope> Skill scope: project (default) or global
   -h, --help            Show help
   -v, --version         Show version
 
@@ -106,7 +114,8 @@ Examples:
   android-api-diff query "IActivityManager.getTasks" --min-sdk 28
   android-api-diff generate "ActivityThread.currentApplication" --min-sdk 28
   android-api-diff preload "ContentObserver()" "IActivityManager.getTasks"
-  npx android-api-diff@latest install
+  android-api-diff skill install
+  android-api-diff skill remove
 `;
 
 const HELP_BY_TOPIC: Record<string, string> = {
@@ -128,10 +137,13 @@ Generate Java hidden-API code. This command performs the version query itself.
 
 Preload query results for one or more APIs into the local cache.
 `,
-  install: `Usage: android-api-diff install [--format json|pretty]
+  skill: `Usage:
+  android-api-diff skill install [--skill-scope project|global] [--format json|pretty]
+  android-api-diff skill remove [--skill-scope project|global] [--format json|pretty]
 
-Install or upgrade the global android-api-diff CLI with npm, then install the
-matching Codex Skill globally. npm owns CLI version detection and upgrades.
+Install or remove the matching Codex Skill without changing the global CLI.
+Project scope is the default. Removal cleans the canonical and Codex-visible
+paths; it does not uninstall the CLI or mutate other agents' directories.
 `,
 };
 
@@ -157,6 +169,17 @@ const parseFormat = (value: string | undefined): CliFormat => {
   return usageError('--format must be either "json" or "pretty"');
 };
 
+const parseSkillScope = (value: string | undefined): SkillScope => {
+  if (value === undefined || value === 'project') return 'project';
+  if (value === 'global') return 'global';
+  return usageError('--skill-scope must be either "project" or "global"');
+};
+
+const parseSkillAction = (value: string | undefined): 'install' | 'remove' => {
+  if (value === 'install' || value === 'remove') return value;
+  return usageError('skill action must be either "install" or "remove"');
+};
+
 const requireApiName = (positionals: string[], expectedCount = 1): string => {
   if (positionals.length < expectedCount + 1) {
     usageError('an API name is required');
@@ -177,6 +200,7 @@ export const parseCliArgs = (args: string[]): CliRequest => {
           version?: boolean;
           format?: string;
           'min-sdk'?: string;
+          'skill-scope'?: string;
         };
         positionals: string[];
       }
@@ -191,6 +215,7 @@ export const parseCliArgs = (args: string[]): CliRequest => {
         version: { type: 'boolean', short: 'v' },
         format: { type: 'string' },
         'min-sdk': { type: 'string' },
+        'skill-scope': { type: 'string' },
       },
     });
   } catch (error) {
@@ -211,17 +236,26 @@ export const parseCliArgs = (args: string[]): CliRequest => {
   const format = parseFormat(values.format);
   const minSdk = parseMinSdk(values['min-sdk']);
 
-  if (command === 'install') {
-    if (positionals.length > 1) {
-      usageError('install does not accept positional arguments');
+  if (command === 'skill') {
+    if (positionals.length === 1) {
+      return { command: 'help', topic: 'skill' };
+    }
+    if (positionals.length > 2) {
+      usageError('skill does not accept additional positional arguments');
     }
     if (minSdk !== undefined) {
-      usageError('install does not accept --min-sdk');
+      usageError('skill does not accept --min-sdk');
     }
     return {
+      action: parseSkillAction(positionals[1]),
       command,
       format,
+      skillScope: parseSkillScope(values['skill-scope']),
     };
+  }
+
+  if (values['skill-scope'] !== undefined) {
+    usageError('--skill-scope is only supported by skill commands');
   }
 
   if (command === 'resolve') {
@@ -300,10 +334,20 @@ const createProgressReporter = (
 
 const executeRequest = async (
   request: Exclude<CliRequest, { command: 'help' | 'version' }>,
-  { installRuntime, runtime, signal, progress }: ExecuteContext,
+  { cwd, installRuntime, runtime, signal, progress }: ExecuteContext,
 ): Promise<unknown> => {
-  if (request.command === 'install') {
-    return installCliAndSkill(installRuntime, packageJson.version, signal);
+  if (request.command === 'skill') {
+    const skill =
+      request.action === 'install'
+        ? await installSkill(
+            installRuntime,
+            packageJson.version,
+            request.skillScope,
+            cwd,
+            signal,
+          )
+        : await removeSkill(installRuntime, request.skillScope, cwd, signal);
+    return { skill };
   }
 
   if (request.command === 'resolve') {
@@ -380,6 +424,7 @@ const writeSuccess = (
   const response = {
     ok: true,
     command: request.command,
+    ...(request.command === 'skill' ? { action: request.action } : {}),
     result,
   };
   const output =
@@ -475,6 +520,7 @@ export const runCli = async (
     signal.throwIfAborted();
     progress = createProgressReporter(io.stderr);
     const result = await (options.execute ?? executeRequest)(request, {
+      cwd: options.cwd ?? process.cwd(),
       installRuntime:
         options.installRuntime ?? createNodeInstallRuntime(io.stderr),
       runtime: options.runtime ?? createNodeRuntime(),
@@ -493,12 +539,20 @@ export const runCli = async (
 
 export const main = async (args = process.argv.slice(2)): Promise<number> => {
   const controller = new AbortController();
+  let abortExitCode = 130;
   const onSigint = () => controller.abort();
+  const onSigterm = () => {
+    abortExitCode = 143;
+    controller.abort();
+  };
   process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
   try {
-    return await runCli(args, { signal: controller.signal });
+    const exitCode = await runCli(args, { signal: controller.signal });
+    return exitCode === 130 ? abortExitCode : exitCode;
   } finally {
     process.off('SIGINT', onSigint);
+    process.off('SIGTERM', onSigterm);
   }
 };
 

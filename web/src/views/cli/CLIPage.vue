@@ -56,7 +56,8 @@ const errorText = ref('');
 const resultText = ref('');
 const copiedKey = ref('');
 
-const cliInstallCommand = 'npx android-api-diff@latest install';
+const cliInstallCommand = 'npm install --global android-api-diff@latest';
+const skillInstallCommand = 'android-api-diff skill install';
 
 const activeCommand = computed(
   () => commands.find((command) => command.name === activeCommandName.value)!,
@@ -227,7 +228,7 @@ const runActiveCommand = async () => {
       <section>
         <div bg-white b-1px b-solid b-gray-200 rounded-6px p-14px min-w-0>
           <div text-12px uppercase tracking-1px text-gray-500 mb-8px>
-            Install CLI + Skill
+            Install CLI
           </div>
           <div flex items-start gap-8px>
             <code class="cli-inline-code" flex-1>{{ cliInstallCommand }}</code>
@@ -237,6 +238,21 @@ const runActiveCommand = async () => {
               @click="copyText('cli-install', cliInstallCommand)"
             >
               {{ copiedKey === 'cli-install' ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+          <div text-12px uppercase tracking-1px text-gray-500 mt-14px mb-8px>
+            Install project Skill
+          </div>
+          <div flex items-start gap-8px>
+            <code class="cli-inline-code" flex-1>{{
+              skillInstallCommand
+            }}</code>
+            <button
+              type="button"
+              class="text-button"
+              @click="copyText('skill-install', skillInstallCommand)"
+            >
+              {{ copiedKey === 'skill-install' ? 'Copied' : 'Copy' }}
             </button>
           </div>
         </div>

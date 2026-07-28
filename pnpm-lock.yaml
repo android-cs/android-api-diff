@@ -329,6 +329,9 @@ importers:
       '@android-cs/api-query':
         specifier: workspace:*
         version: link:../api-query
+      skills:
+        specifier: 1.5.20
+        version: 1.5.20
 
   packages/api-parser:
     dependencies:
@@ -2465,6 +2468,11 @@ packages:
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
+
+  skills@1.5.20:
+    resolution: {integrity: sha512-lPl5KzMfTW+qwHFwc8t6R+wAqmdmSHw1+HWbGdJ/FZYbWLdB34bAZNFWiencM5DVoRaKAgXArmfTWMlNAbl9Gg==}
+    engines: {node: '>=22.20.0'}
+    hasBin: true
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -4833,6 +4841,10 @@ snapshots:
       '@polka/url': 1.0.0-next.29
       mrmime: 2.0.1
       totalist: 3.0.1
+
+  skills@1.5.20:
+    dependencies:
+      yaml: 2.9.0
 
   source-map-js@1.2.1: {}
 
