@@ -8,8 +8,11 @@ import type {
   AndroidApiCodeDeclaration,
   AndroidApiCodeResult,
   AndroidApiMemberResult,
+  AndroidApiOverloadResult,
+  AndroidApiOverloadVersionRangeResult,
   AndroidApiQueryResult,
   AndroidApiResolvedType,
+  AndroidApiVersionRange,
   AndroidApiVersionRangeResult,
   AndroidVersionInfo,
 } from './types.ts';
@@ -32,9 +35,9 @@ interface CodeSignatureSummary {
 }
 
 interface CodeSignatureSummaryRange {
-  fromRange: AndroidApiVersionRangeResult;
+  fromRange: AndroidApiOverloadVersionRangeResult;
   fromIndex: number;
-  toRange: AndroidApiVersionRangeResult;
+  toRange: AndroidApiOverloadVersionRangeResult;
   toIndex: number;
 }
 
@@ -74,7 +77,7 @@ const qualifiedTypeReg = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g;
 const indent = (level: number) => '    '.repeat(level);
 
 const toStartVersionInfo = (
-  range: AndroidApiVersionRangeResult,
+  range: AndroidApiVersionRange,
 ): AndroidVersionInfo => {
   return {
     version: range.fromVersion,
@@ -268,7 +271,7 @@ const compareDeclarations = (
 
 const getAndroidVersionInfo = (
   apiVersion: number,
-  range: AndroidApiVersionRangeResult,
+  range: AndroidApiVersionRange,
 ): AndroidVersionInfo => {
   if (apiVersion === range.fromApiVersion) {
     return {
@@ -295,7 +298,7 @@ const getAndroidVersionInfo = (
   );
 };
 
-const getApiVersionsInRange = (range: AndroidApiVersionRangeResult) => {
+const getApiVersionsInRange = (range: AndroidApiVersionRange) => {
   const versions = androidVersionInfos.filter(
     (version) =>
       version.apiVersion >= range.fromApiVersion &&
@@ -322,45 +325,47 @@ const completeDeclaration = (
 };
 
 const collectDeclarations = (
-  ranges: AndroidApiVersionRangeResult[],
+  overloads: AndroidApiOverloadResult[],
 ): AndroidApiCodeDeclaration[] => {
-  const active = new Map<string, CodeDeclarationState>();
   const declarations: AndroidApiCodeDeclaration[] = [];
 
-  for (const range of ranges) {
-    const members = range.members ?? [];
-    const presentKeys = new Set(members.map(formatMemberIdentityKey));
-    const missingVersion = toStartVersionInfo(range);
-
-    for (const [key, state] of active) {
-      if (presentKeys.has(key)) continue;
-      if (missingVersion.apiVersion > state.requiresApi.apiVersion) {
-        state.deprecatedSinceApi = missingVersion;
+  for (const overload of overloads) {
+    let active:
+      | {
+          key: string;
+          state: CodeDeclarationState;
+        }
+      | undefined;
+    for (const range of overload.ranges) {
+      const member = range.member;
+      const key = member ? formatMemberIdentityKey(member) : undefined;
+      if (active && active.key !== key) {
+        const missingVersion = toStartVersionInfo(range);
+        if (missingVersion.apiVersion > active.state.requiresApi.apiVersion) {
+          active.state.deprecatedSinceApi = missingVersion;
+        }
+        completeDeclaration(declarations, active.state);
+        active = undefined;
       }
-      completeDeclaration(declarations, state);
-      active.delete(key);
-    }
 
-    for (const member of members) {
-      const key = formatMemberIdentityKey(member);
-      const existing = active.get(key);
-      if (existing) {
-        existing.toTag = range.toTag;
-        existing.member = member;
-      } else {
-        active.set(key, {
+      if (!member || !key) continue;
+      if (active) {
+        active.state.toTag = range.toTag;
+        active.state.member = member;
+        continue;
+      }
+      active = {
+        key,
+        state: {
           member,
           signature: member.type,
           requiresApi: toStartVersionInfo(range),
           fromTag: range.fromTag,
           toTag: range.toTag,
-        });
-      }
+        },
+      };
     }
-  }
-
-  for (const state of active.values()) {
-    completeDeclaration(declarations, state);
+    if (active) completeDeclaration(declarations, active.state);
   }
 
   return declarations.sort(compareDeclarations);
@@ -510,7 +515,7 @@ const getTagDesc = (tag: string) => {
     : tag;
 };
 
-const getApiRangeIndexes = (ranges: AndroidApiVersionRangeResult[]) => {
+const getApiRangeIndexes = (ranges: AndroidApiVersionRange[]) => {
   const firstIndexes = new Map<number, number>();
   const lastIndexes = new Map<number, number>();
   ranges.forEach((range, index) => {
@@ -567,14 +572,38 @@ const formatSummaryRange = (
   return `${fromDesc} - ${toDesc}`;
 };
 
-const collectSignatureSummaries = (ranges: AndroidApiVersionRangeResult[]) => {
-  const summaries = new Map<string, CodeSignatureSummary>();
-  const { firstIndexes, lastIndexes } = getApiRangeIndexes(ranges);
-  const hasCheckedTagPositions = ranges.some(
-    (range) => range.fromTagPosition || range.toTagPosition,
+const findBoundaryRangeIndex = (
+  ranges: AndroidApiVersionRangeResult[],
+  boundaryTag: string,
+  boundary: 'from' | 'to',
+) => {
+  const index = ranges.findIndex(
+    (range) =>
+      (boundary === 'from' ? range.fromTag : range.toTag) === boundaryTag,
   );
-  ranges.forEach((range, index) => {
-    for (const member of range.members ?? []) {
+  if (index >= 0) return index;
+  return boundary === 'from' ? 0 : Math.max(0, ranges.length - 1);
+};
+
+const collectSignatureSummaries = (
+  overloads: AndroidApiOverloadResult[],
+  checkedRanges: AndroidApiVersionRangeResult[],
+) => {
+  const summaries = new Map<string, CodeSignatureSummary>();
+  const { firstIndexes, lastIndexes } = getApiRangeIndexes(checkedRanges);
+  const hasCheckedTagPositions =
+    checkedRanges.some(
+      (range) => range.fromTagPosition || range.toTagPosition,
+    ) ||
+    overloads.some((overload) =>
+      overload.ranges.some(
+        (range) => range.fromTagPosition || range.toTagPosition,
+      ),
+    );
+  for (const overload of overloads) {
+    for (const range of overload.ranges) {
+      const member = range.member;
+      if (!member) continue;
       const key = formatMemberIdentityKey(member);
       let summary = summaries.get(key);
       if (!summary) {
@@ -589,20 +618,26 @@ const collectSignatureSummaries = (ranges: AndroidApiVersionRangeResult[]) => {
       } else {
         summary.signature = formatSummaryMemberType(member);
       }
+      const fromIndex = findBoundaryRangeIndex(
+        checkedRanges,
+        range.fromTag,
+        'from',
+      );
+      const toIndex = findBoundaryRangeIndex(checkedRanges, range.toTag, 'to');
       const lastRange = summary.ranges.at(-1);
-      if (lastRange?.toIndex === index - 1) {
+      if (lastRange?.toIndex === fromIndex - 1) {
         lastRange.toRange = range;
-        lastRange.toIndex = index;
+        lastRange.toIndex = toIndex;
       } else {
         summary.ranges.push({
           fromRange: range,
-          fromIndex: index,
+          fromIndex,
           toRange: range,
-          toIndex: index,
+          toIndex,
         });
       }
     }
-  });
+  }
   return summaries;
 };
 
@@ -1375,7 +1410,7 @@ export const renderAndroidApiCodeWithMemberCode = (
 ): AndroidApiCodeResult & { memberCode: string } => {
   const ranges = result.ranges;
   const baselineApiVersion = ranges[0]?.fromApiVersion;
-  const lifecycleDeclarations = collectDeclarations(ranges);
+  const lifecycleDeclarations = collectDeclarations(result.overloads);
   const hasComplexDeclarationLifecycle = hasComplexLifecycle(
     lifecycleDeclarations,
   );
@@ -1383,7 +1418,10 @@ export const renderAndroidApiCodeWithMemberCode = (
     ? mergeDeclarationsByIdentity(lifecycleDeclarations)
     : lifecycleDeclarations;
   const declarations = applyRemapMethodNames(codeDeclarations);
-  const signatureSummaries = collectSignatureSummaries(result.ranges);
+  const signatureSummaries = collectSignatureSummaries(
+    result.overloads,
+    result.ranges,
+  );
   const renderedCode = renderCode(
     result,
     declarations,
@@ -1401,13 +1439,13 @@ export const renderAndroidApiCodeWithMemberCode = (
       checkedTags: result.summary.checkedTags,
       foundTags: result.summary.foundTags,
       declarationCount: declarations.length,
+      overloadCount: result.overloads.length,
       ...(result.summary.firstFoundTag
         ? { firstFoundTag: result.summary.firstFoundTag }
         : {}),
       ...(result.summary.lastFoundTag
         ? { lastFoundTag: result.summary.lastFoundTag }
         : {}),
-      signatures: result.summary.signatures,
     },
     declarations,
     memberCode: renderedCode.memberCode,

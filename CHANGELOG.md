@@ -3,15 +3,12 @@
 <!-- Keep only the latest release notes here. Do not include a version number or
 append older releases. Replace the entries below when publishing a new release. -->
 
-- Make the Codex Skill project-scoped by default and report its resolved path
-  and scope; keep global installation available through explicit opt-in.
-- Add symmetric `android-api-diff skill install` and `skill remove` commands so
-  project or global Skills can be managed independently from the CLI.
-- Remove the former top-level `install` command; install and upgrade the CLI
-  through npm or pnpm.
-- Run Skill management through an exact-version `skills` dependency and
-  verify Codex paths plus the Skill lock record after removal.
-- Reject symlinked project targets, disable manager telemetry, and propagate
-  SIGTERM while a Skill operation is running.
-- Limit upstream Skill removal to Codex, then clean only the verified
-  canonical/Codex paths so unrelated agent directories are never mutated.
+- Organize member-query output around individual `overloads`, with stable
+  identities, latest signatures, structured members, and independent version
+  ranges.
+- Distinguish a missing parameter signature with `overload-not-found`, and
+  expose the overloads available together through top-level range IDs.
+- Add a non-persistent Web selector for switching between all Java overloads
+  and one specific signature while keeping the aggregate view as the default.
+- Keep hidden-API code generation, cache invalidation, CLI documentation, and
+  the release-matched Codex Skill aligned with the new result model.

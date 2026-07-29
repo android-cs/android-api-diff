@@ -127,7 +127,11 @@ export interface AndroidApiStructCacheEntry {
 
 export type AndroidApiMissingReason = 'source-file-not-found' | 'api-not-found';
 
-export interface AndroidApiVersionRangeResult {
+export type AndroidApiOverloadMissingReason =
+  | AndroidApiMissingReason
+  | 'overload-not-found';
+
+export interface AndroidApiVersionRange {
   fromVersion: string;
   fromAlias: string;
   fromApiVersion: number;
@@ -140,8 +144,27 @@ export interface AndroidApiVersionRangeResult {
   toTag: string;
   /** The endpoint is the last tag checked in this query snapshot, not a permanent final tag. */
   toTagPosition?: 'last-checked';
+}
+
+export interface AndroidApiVersionRangeResult extends AndroidApiVersionRange {
   missingReason?: AndroidApiMissingReason;
-  members?: AndroidApiMemberResult[];
+  /** Stable overload identities available throughout this range. */
+  overloadIds?: string[];
+}
+
+export interface AndroidApiOverloadVersionRangeResult extends AndroidApiVersionRange {
+  missingReason?: AndroidApiOverloadMissingReason;
+  member?: AndroidApiMemberResult;
+}
+
+export interface AndroidApiOverloadResult {
+  /** Java overload identity: member kind, name, and parameter types. */
+  overloadId: string;
+  /** Full signature from the latest checked definition of this overload. */
+  signature: string;
+  /** Latest checked definition of this overload. */
+  member: AndroidApiMemberResult;
+  ranges: AndroidApiOverloadVersionRangeResult[];
 }
 
 export interface AndroidApiQueryResult {
@@ -155,11 +178,12 @@ export interface AndroidApiQueryResult {
     checkedTags: number;
     foundTags: number;
     rangeCount: number;
+    overloadCount: number;
     firstFoundTag?: string;
     lastFoundTag?: string;
-    signatures: string[];
   };
   ranges: AndroidApiVersionRangeResult[];
+  overloads: AndroidApiOverloadResult[];
 }
 
 export interface AndroidApiCodeDeclaration {
@@ -183,9 +207,9 @@ export interface AndroidApiCodeResult {
     checkedTags: number;
     foundTags: number;
     declarationCount: number;
+    overloadCount: number;
     firstFoundTag?: string;
     lastFoundTag?: string;
-    signatures: string[];
   };
   declarations: AndroidApiCodeDeclaration[];
   code: string;

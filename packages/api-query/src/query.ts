@@ -12,10 +12,13 @@ import { findStructPathByPath, toAndroidApiResolvedType } from './struct.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiMissingReason,
+  AndroidApiOverloadResult,
+  AndroidApiOverloadVersionRangeResult,
   AndroidApiQueryResult,
   AndroidApiQueryRuntime,
   AndroidApiResolvedType,
   AndroidApiStructCacheEntry,
+  AndroidApiVersionRange,
   AndroidApiVersionRangeResult,
   AndroidVersionItem,
   QueryAndroidApiOptions,
@@ -23,7 +26,7 @@ import type {
 import { getMirrorContentUrl } from './url.ts';
 
 export const STRUCT_CACHE_VERSION = 'struct:v11';
-export const QUERY_CACHE_VERSION = 'query:v22';
+export const QUERY_CACHE_VERSION = 'query:v23';
 const DEFAULT_CONCURRENCY = 3;
 
 interface InternalAndroidApiVersionResult {
@@ -32,7 +35,6 @@ interface InternalAndroidApiVersionResult {
   apiVersion: number;
   tag: string;
   missingReason?: AndroidApiMissingReason;
-  signature?: string;
   members?: AndroidApiMemberResult[];
   package: string;
   imports: string[];
@@ -204,6 +206,23 @@ const toSemanticMember = (member: AndroidApiMemberResult) => {
   };
 };
 
+interface AndroidApiOverloadIdentityMember {
+  kind: AndroidApiMemberResult['kind'];
+  name: string;
+  parameters?: readonly { type: string }[];
+}
+
+export const getAndroidApiOverloadId = (
+  member: AndroidApiOverloadIdentityMember,
+): string => {
+  if (member.parameters) {
+    return `${member.kind}:${member.name}(${member.parameters
+      .map((parameter) => parameter.type)
+      .join(',')})`;
+  }
+  return `${member.kind}:${member.name}`;
+};
+
 const toSemanticKey = (version: InternalAndroidApiVersionResult): string => {
   return JSON.stringify({
     missingReason: version.missingReason,
@@ -246,9 +265,14 @@ const normalizeVersionImports = (
   return imports;
 };
 
+export interface AndroidApiMemberVersionRangeInput extends AndroidApiVersionRange {
+  missingReason?: AndroidApiMissingReason;
+  members?: AndroidApiMemberResult[];
+}
+
 const toRange = (
   version: InternalAndroidApiVersionResult,
-): AndroidApiVersionRangeResult => {
+): AndroidApiMemberVersionRangeInput => {
   return {
     fromVersion: version.version,
     fromAlias: version.alias,
@@ -264,7 +288,7 @@ const toRange = (
 };
 
 const extendRange = (
-  range: AndroidApiVersionRangeResult,
+  range: AndroidApiMemberVersionRangeInput,
   version: InternalAndroidApiVersionResult,
 ) => {
   range.toVersion = version.version;
@@ -282,9 +306,13 @@ const getVersionIdentity = (version: {
 };
 
 const addCheckedTagPositions = (
-  ranges: AndroidApiVersionRangeResult[],
-  versions: InternalAndroidApiVersionResult[],
-): AndroidApiVersionRangeResult[] => {
+  ranges: AndroidApiVersionRange[],
+  versions: Array<{
+    version: string;
+    apiVersion: number;
+    tag: string;
+  }>,
+) => {
   const firstTags = new Map<string, string>();
   const lastTags = new Map<string, string>();
   for (const version of versions) {
@@ -319,8 +347,8 @@ const addCheckedTagPositions = (
 
 const compactVersionResults = (
   versions: InternalAndroidApiVersionResult[],
-): AndroidApiVersionRangeResult[] => {
-  const ranges: AndroidApiVersionRangeResult[] = [];
+): AndroidApiMemberVersionRangeInput[] => {
+  const ranges: AndroidApiMemberVersionRangeInput[] = [];
   let previousKey = '';
   for (const version of versions) {
     const key = toSemanticKey(version);
@@ -333,6 +361,111 @@ const compactVersionResults = (
     }
   }
   return addCheckedTagPositions(ranges, versions);
+};
+
+const toOverloadRange = (
+  range: AndroidApiMemberVersionRangeInput,
+  overloadId: string,
+): AndroidApiOverloadVersionRangeResult => {
+  const member = range.members?.find(
+    (candidate) => getAndroidApiOverloadId(candidate) === overloadId,
+  );
+  const missingReason =
+    range.missingReason ?? (member ? undefined : 'overload-not-found');
+  return {
+    fromVersion: range.fromVersion,
+    fromAlias: range.fromAlias,
+    fromApiVersion: range.fromApiVersion,
+    fromTag: range.fromTag,
+    ...(range.fromTagPosition
+      ? { fromTagPosition: range.fromTagPosition }
+      : {}),
+    toVersion: range.toVersion,
+    toAlias: range.toAlias,
+    toApiVersion: range.toApiVersion,
+    toTag: range.toTag,
+    ...(range.toTagPosition ? { toTagPosition: range.toTagPosition } : {}),
+    ...(missingReason ? { missingReason } : {}),
+    ...(member ? { member } : {}),
+  };
+};
+
+const toOverloadSemanticKey = (
+  range: AndroidApiOverloadVersionRangeResult,
+): string => {
+  return JSON.stringify({
+    missingReason: range.missingReason,
+    member: range.member ? toSemanticMember(range.member) : undefined,
+  });
+};
+
+const compactOverloadRanges = (
+  ranges: readonly AndroidApiMemberVersionRangeInput[],
+  overloadId: string,
+): AndroidApiOverloadVersionRangeResult[] => {
+  const result: AndroidApiOverloadVersionRangeResult[] = [];
+  let previousKey = '';
+  for (const range of ranges) {
+    const next = toOverloadRange(range, overloadId);
+    const key = toOverloadSemanticKey(next);
+    const previous = result.at(-1);
+    if (previous && key === previousKey) {
+      previous.toVersion = next.toVersion;
+      previous.toAlias = next.toAlias;
+      previous.toApiVersion = next.toApiVersion;
+      previous.toTag = next.toTag;
+      if (next.toTagPosition) {
+        previous.toTagPosition = next.toTagPosition;
+      } else {
+        delete previous.toTagPosition;
+      }
+      if (next.member) previous.member = next.member;
+    } else {
+      result.push(next);
+      previousKey = key;
+    }
+  }
+  return result;
+};
+
+export const normalizeAndroidApiMemberRanges = (
+  memberRanges: readonly AndroidApiMemberVersionRangeInput[],
+): {
+  ranges: AndroidApiVersionRangeResult[];
+  overloads: AndroidApiOverloadResult[];
+} => {
+  const sortedMemberRanges = [...memberRanges].sort(
+    (a, b) =>
+      a.fromApiVersion - b.fromApiVersion ||
+      getTagRevision(a.fromTag) - getTagRevision(b.fromTag) ||
+      a.fromTag.localeCompare(b.fromTag),
+  );
+  const latestMembers = new Map<string, AndroidApiMemberResult>();
+  for (const range of sortedMemberRanges) {
+    for (const member of range.members ?? []) {
+      latestMembers.set(getAndroidApiOverloadId(member), member);
+    }
+  }
+  const overloads = Array.from(latestMembers, ([overloadId, member]) => ({
+    overloadId,
+    signature: member.type,
+    member,
+    ranges: compactOverloadRanges(sortedMemberRanges, overloadId),
+  })).sort(
+    (a, b) =>
+      ('parameters' in a.member ? a.member.parameters.length : 0) -
+        ('parameters' in b.member ? b.member.parameters.length : 0) ||
+      a.overloadId.localeCompare(b.overloadId),
+  );
+  const ranges = sortedMemberRanges.map(({ members, ...range }) => ({
+    ...range,
+    ...(members
+      ? {
+          overloadIds: members.map(getAndroidApiOverloadId),
+        }
+      : {}),
+  }));
+  return { ranges, overloads };
 };
 
 const getQueryCacheKey = (options: QueryAndroidApiOptions): string => {
@@ -370,9 +503,10 @@ export const queryAndroidApi = async (
         checkedTags: 0,
         foundTags: 0,
         rangeCount: 0,
-        signatures: [],
+        overloadCount: 0,
       },
       ranges: [],
+      overloads: [],
     };
     await runtime.queryCache?.set(cacheKey, result);
     return result;
@@ -413,7 +547,6 @@ export const queryAndroidApi = async (
           let targetFound = false;
           let members: AndroidApiMemberResult[] | undefined;
           let typePath: AndroidApiResolvedType[] | undefined;
-          let signature = '';
 
           if (!sourceFileNotFound) {
             if (search.targetKind === 'file') {
@@ -449,7 +582,6 @@ export const queryAndroidApi = async (
                         (a.parameterCount ?? 0) - (b.parameterCount ?? 0),
                     )
                     .map(toResultMember);
-                  signature = members.map((v) => v.type).join('\n');
                 }
               }
             }
@@ -473,7 +605,6 @@ export const queryAndroidApi = async (
             package: file.package,
             imports: file.imports,
             ...(missingReason ? { missingReason } : {}),
-            ...(signature ? { signature } : {}),
             members,
             ...(typePath ? { typePath } : {}),
           };
@@ -491,10 +622,8 @@ export const queryAndroidApi = async (
 
   const imports = normalizeVersionImports(versions);
   const foundVersions = versions.filter((v) => !v.missingReason);
-  const ranges = compactVersionResults(versions);
-  const signatures = Array.from(
-    new Set(foundVersions.flatMap((v) => (v.signature ? [v.signature] : []))),
-  );
+  const memberRanges = compactVersionResults(versions);
+  const { ranges, overloads } = normalizeAndroidApiMemberRanges(memberRanges);
   const typePath = versions.findLast((version) => version.typePath)?.typePath;
   const result: AndroidApiQueryResult = {
     apiName: options.apiName,
@@ -510,11 +639,12 @@ export const queryAndroidApi = async (
       checkedTags: versions.length,
       foundTags: foundVersions.length,
       rangeCount: ranges.length,
+      overloadCount: overloads.length,
       firstFoundTag: foundVersions[0]?.tag,
       lastFoundTag: foundVersions.at(-1)?.tag,
-      signatures,
     },
     ranges,
+    overloads,
   };
   await runtime.queryCache?.set(cacheKey, result);
   return result;

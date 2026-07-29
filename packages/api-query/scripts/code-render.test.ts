@@ -3,12 +3,19 @@ import {
   renderAndroidApiCode,
   renderAndroidApiCodeWithMemberCode,
 } from '../src/code-render.ts';
+import {
+  normalizeAndroidApiMemberRanges,
+  type AndroidApiMemberVersionRangeInput,
+} from '../src/query.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryResult,
   AndroidApiResolvedType,
-  AndroidApiVersionRangeResult,
 } from '../src/types.ts';
+
+interface AndroidApiMemberVersionRange extends AndroidApiMemberVersionRangeInput {
+  members: AndroidApiMemberResult[];
+}
 
 const field = (
   fieldNullability?: Extract<
@@ -65,8 +72,8 @@ const range = (
   apiVersion: number,
   tag: string,
   members: AndroidApiMemberResult[],
-  missingReason?: AndroidApiVersionRangeResult['missingReason'],
-): AndroidApiVersionRangeResult => ({
+  missingReason?: AndroidApiMemberVersionRangeInput['missingReason'],
+): AndroidApiMemberVersionRange => ({
   fromVersion: version,
   fromAlias: alias,
   fromApiVersion: apiVersion,
@@ -89,8 +96,8 @@ const rangeSpan = (
   toApiVersion: number,
   toTag: string,
   members: AndroidApiMemberResult[],
-  missingReason?: AndroidApiVersionRangeResult['missingReason'],
-): AndroidApiVersionRangeResult => ({
+  missingReason?: AndroidApiMemberVersionRangeInput['missingReason'],
+): AndroidApiMemberVersionRange => ({
   fromVersion,
   fromAlias,
   fromApiVersion,
@@ -107,31 +114,35 @@ const baseResult = (
   apiName: string,
   sourcePath: string,
   targetPaths: string[],
-  ranges: AndroidApiVersionRangeResult[],
+  memberRanges: AndroidApiMemberVersionRange[],
   typePath?: AndroidApiResolvedType[],
   imports: string[] = [],
-): AndroidApiQueryResult => ({
-  apiName,
-  normalizedApiName: apiName,
-  package: '',
-  imports,
-  source: {
-    repo: 'platform/frameworks/base',
-    path: sourcePath,
-  },
-  resolvedTarget: {
-    kind: 'member',
-    paths: targetPaths,
-    ...(typePath ? { typePath } : {}),
-  },
-  summary: {
-    checkedTags: ranges.length,
-    foundTags: ranges.length,
-    rangeCount: ranges.length,
-    signatures: [],
-  },
-  ranges,
-});
+): AndroidApiQueryResult => {
+  const { ranges, overloads } = normalizeAndroidApiMemberRanges(memberRanges);
+  return {
+    apiName,
+    normalizedApiName: apiName,
+    package: '',
+    imports,
+    source: {
+      repo: 'platform/frameworks/base',
+      path: sourcePath,
+    },
+    resolvedTarget: {
+      kind: 'member',
+      paths: targetPaths,
+      ...(typePath ? { typePath } : {}),
+    },
+    summary: {
+      checkedTags: ranges.length,
+      foundTags: ranges.length,
+      rangeCount: ranges.length,
+      overloadCount: overloads.length,
+    },
+    ranges,
+    overloads,
+  };
+};
 
 {
   const result = renderAndroidApiCode(
@@ -957,7 +968,7 @@ const baseResult = (
     'android-13.0.0_r15',
     [getValue],
   );
-  const android14MissingRange: AndroidApiVersionRangeResult = {
+  const android14MissingRange: AndroidApiMemberVersionRange = {
     ...range(
       '14',
       'UPSIDE_DOWN_CAKE',
@@ -969,7 +980,7 @@ const baseResult = (
     fromTagPosition: 'first-checked',
     toTagPosition: 'last-checked',
   };
-  const android15Range: AndroidApiVersionRangeResult = {
+  const android15Range: AndroidApiMemberVersionRange = {
     ...range('15', 'VANILLA_ICE_CREAM', 35, 'android-15.0.0_r1', [getValue]),
     fromTagPosition: 'first-checked',
     toTagPosition: 'last-checked',

@@ -7,7 +7,6 @@ import TagCard from '@/views/home/TagCard.vue';
 import type {
   AndroidApiQueryResult,
   AndroidApiResolvedType,
-  AndroidApiVersionRangeResult,
 } from '@android-cs/api-query';
 import {
   findStructPathByPath,
@@ -17,6 +16,10 @@ import {
   renderAndroidApiCodeWithMemberCode,
   toAndroidApiMemberResult,
 } from '@android-cs/api-query/code-render';
+import {
+  normalizeAndroidApiMemberRanges,
+  type AndroidApiMemberVersionRangeInput,
+} from '@android-cs/api-query/query';
 import { useEventListener } from '@vueuse/core';
 import { computed, onMounted, ref } from 'vue';
 import DiffConcurrentSelect from './DiffConcurrentSelect.vue';
@@ -86,7 +89,7 @@ const versionInfoByTag = computed(() => {
 const getRangeFromDiffResult = (
   item: DiffResultItem,
   importIndexes: Map<string, number>,
-): AndroidApiVersionRangeResult | undefined => {
+): AndroidApiMemberVersionRangeInput | undefined => {
   const version = versionInfoByTag.value.get(item.tag);
   if (!version) return;
   const members = item.members
@@ -161,17 +164,11 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
   const importIndexes = new Map(
     imports.map((value, index) => [value, index] as const),
   );
-  const ranges = diffResultList.value
+  const memberRanges = diffResultList.value
     .map((item) => getRangeFromDiffResult(item, importIndexes))
-    .filter((range): range is AndroidApiVersionRangeResult => !!range);
-  const foundRanges = ranges.filter((range) => !range.missingReason);
-  const signatures = Array.from(
-    new Set(
-      foundRanges.flatMap(
-        (range) => range.members?.map((member) => member.type) ?? [],
-      ),
-    ),
-  );
+    .filter((range): range is AndroidApiMemberVersionRangeInput => !!range);
+  const foundRanges = memberRanges.filter((range) => !range.missingReason);
+  const { ranges, overloads } = normalizeAndroidApiMemberRanges(memberRanges);
   const typePath = getLatestResolvedTypePath();
   return {
     apiName: searchRef.value,
@@ -193,13 +190,14 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
       checkedTags: ranges.length,
       foundTags: foundRanges.length,
       rangeCount: ranges.length,
+      overloadCount: overloads.length,
       ...(foundRanges[0] ? { firstFoundTag: foundRanges[0].fromTag } : {}),
       ...(foundRanges.at(-1)
         ? { lastFoundTag: foundRanges.at(-1)!.toTag }
         : {}),
-      signatures,
     },
     ranges,
+    overloads,
   };
 });
 

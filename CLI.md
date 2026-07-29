@@ -97,6 +97,13 @@ written as structured JSON to stderr and return a nonzero exit code. Progress
 is shown on stderr only when it is attached to a terminal, so piped JSON stays
 clean.
 
+Member-query results are organized by `result.overloads`. Each overload has a
+stable `overloadId`, its latest checked `signature` and structured `member`, and
+independent version `ranges`. Top-level `result.ranges[].overloadIds` describes
+which overloads were available together. An overload range can report
+`overload-not-found` when the member name exists but that parameter signature
+does not.
+
 Range endpoints describe the first or last Android tag checked in the current
 query snapshot. `last-checked` does not mean that the tag is permanently final.
 

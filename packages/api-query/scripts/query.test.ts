@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { renderAndroidApiCode } from '../src/code-render.ts';
 import { loadAndroidVersionList } from '../src/data.ts';
-import { queryAndroidApi } from '../src/query.ts';
+import {
+  normalizeAndroidApiMemberRanges,
+  queryAndroidApi,
+} from '../src/query.ts';
 import { searchFilePathByRefName } from '../src/resolve.ts';
 import { toAndroidApiResolvedType } from '../src/struct.ts';
-import type { AndroidApiQueryRuntime } from '../src/types.ts';
+import type {
+  AndroidApiMemberResult,
+  AndroidApiQueryRuntime,
+} from '../src/types.ts';
 
 const version13Tags = [
   'android-13.0.0_r16',
@@ -41,6 +47,51 @@ public interface IExample {
 `;
   },
 };
+
+{
+  const oldMember: AndroidApiMemberResult = {
+    kind: 'method',
+    name: 'ping',
+    type: '() -> void',
+    imports: [],
+    returnType: 'void',
+    parameters: [],
+  };
+  const latestMember: AndroidApiMemberResult = {
+    ...oldMember,
+    type: '() -> int',
+    returnType: 'int',
+  };
+  const normalized = normalizeAndroidApiMemberRanges([
+    {
+      fromVersion: '14',
+      fromAlias: 'UPSIDE_DOWN_CAKE',
+      fromApiVersion: 34,
+      fromTag: 'android-14.0.0_r1',
+      toVersion: '14',
+      toAlias: 'UPSIDE_DOWN_CAKE',
+      toApiVersion: 34,
+      toTag: 'android-14.0.0_r1',
+      members: [latestMember],
+    },
+    {
+      fromVersion: '13',
+      fromAlias: 'TIRAMISU',
+      fromApiVersion: 33,
+      fromTag: 'android-13.0.0_r1',
+      toVersion: '13',
+      toAlias: 'TIRAMISU',
+      toApiVersion: 33,
+      toTag: 'android-13.0.0_r1',
+      members: [oldMember],
+    },
+  ]);
+  assert.equal(normalized.overloads[0]?.signature, '() -> int');
+  assert.deepEqual(
+    normalized.overloads[0]?.ranges.map((range) => range.fromTag),
+    ['android-13.0.0_r1', 'android-14.0.0_r1'],
+  );
+}
 
 {
   assert.deepEqual(
@@ -147,16 +198,20 @@ public interface IExample {
         version: '15',
         alias: 'VANILLA_ICE_CREAM',
         apiVersion: 35,
-        tags: ['android-15.0.0_r1'],
+        tags: ['android-15.0.0_r1', 'android-15.0.0_r2'],
         futureTags: [],
       },
     ],
-    fetchText: async () => `
+    fetchText: async (url) => `
 package android.database;
 
 public abstract class ContentObserver {
   public ContentObserver(Handler handler) {}
-  public ContentObserver(Handler handler, int flags) {}
+  ${
+    url.includes('android-15.0.0_r2/')
+      ? 'public ContentObserver(Handler handler, int flags) {}'
+      : ''
+  }
   public void ContentObserver() {}
   public int ContentObserver;
 }
@@ -171,28 +226,50 @@ public abstract class ContentObserver {
     'ContentObserver',
   ]);
   assert.deepEqual(
-    constructorResult.ranges[0]?.members?.map((member) => ({
-      kind: member.kind,
-      type: member.type,
+    constructorResult.overloads.map((overload) => ({
+      overloadId: overload.overloadId,
+      kind: overload.member.kind,
+      type: overload.member.type,
     })),
     [
-      { kind: 'constructor', type: '(Handler) -> ContentObserver' },
-      { kind: 'constructor', type: '(Handler, int) -> ContentObserver' },
+      {
+        overloadId: 'constructor:ContentObserver(Handler)',
+        kind: 'constructor',
+        type: '(Handler) -> ContentObserver',
+      },
+      {
+        overloadId: 'constructor:ContentObserver(Handler,int)',
+        kind: 'constructor',
+        type: '(Handler, int) -> ContentObserver',
+      },
     ],
+  );
+  assert.equal(constructorResult.summary.overloadCount, 2);
+  assert.equal(
+    Object.hasOwn(constructorResult.ranges[0] ?? {}, 'members'),
+    false,
+  );
+  assert.deepEqual(
+    constructorResult.ranges.map((range) => range.overloadIds),
+    [
+      ['constructor:ContentObserver(Handler)'],
+      [
+        'constructor:ContentObserver(Handler)',
+        'constructor:ContentObserver(Handler,int)',
+      ],
+    ],
+  );
+  assert.deepEqual(
+    constructorResult.overloads[1]?.ranges.map((range) => range.missingReason),
+    ['overload-not-found', undefined],
   );
 
   const legacyConstructorResult = await queryAndroidApi(constructorRuntime, {
     apiName: 'ContentObserver#ContentObserver',
   });
   assert.deepEqual(
-    legacyConstructorResult.ranges[0]?.members?.map((member) => ({
-      kind: member.kind,
-      type: member.type,
-    })),
-    constructorResult.ranges[0]?.members?.map((member) => ({
-      kind: member.kind,
-      type: member.type,
-    })),
+    legacyConstructorResult.overloads.map((overload) => overload.overloadId),
+    constructorResult.overloads.map((overload) => overload.overloadId),
   );
 }
 
@@ -210,6 +287,8 @@ const result = await queryAndroidApi(runtime, {
 });
 
 assert.equal(result.summary.checkedTags, 5);
+assert.equal(result.summary.overloadCount, 1);
+assert.equal(Object.hasOwn(result.summary, 'signatures'), false);
 assert.deepEqual(
   progressUpdates.map(({ completedTags }) => completedTags),
   [0, 1, 2, 3, 4, 5],
@@ -244,6 +323,21 @@ assert.deepEqual(
       toVersion: '14',
       toTag: 'android-14.0.0_r2',
       toTagPosition: 'last-checked',
+    },
+  ],
+);
+assert.deepEqual(result.ranges[0]?.overloadIds, ['method:ping()']);
+assert.deepEqual(
+  result.overloads.map((overload) => ({
+    overloadId: overload.overloadId,
+    signature: overload.signature,
+    rangeCount: overload.ranges.length,
+  })),
+  [
+    {
+      overloadId: 'method:ping()',
+      signature: '() -> int',
+      rangeCount: 2,
     },
   ],
 );
@@ -300,7 +394,7 @@ interface IOrdered {
     'android-10.0.0_r1',
   ]);
   assert.equal(
-    Object.hasOwn(versionMajorResult.ranges[0]?.members?.[0] ?? {}, 'isHidden'),
+    Object.hasOwn(versionMajorResult.overloads[0]?.member ?? {}, 'isHidden'),
     false,
   );
   assert.equal(versionMajorResult.resolvedTarget.typePath?.[0]?.isHidden, true);
@@ -513,7 +607,7 @@ public interface IImportExample {
   );
   assert.equal(importResult.package, 'android.example');
   assert.deepEqual(importResult.imports, ['java.util.List', 'sample.model.A']);
-  assert.deepEqual(importResult.ranges[0]?.members?.[0]?.imports, [0, 1]);
+  assert.deepEqual(importResult.overloads[0]?.member.imports, [0, 1]);
   const code = renderAndroidApiCode(importResult).code;
   assert.match(code, /^package android\.example;/);
   assert.match(code, /import java\.util\.List;/);
@@ -558,7 +652,7 @@ public final class VirtualDeviceManager {
     },
   );
   assert.equal(
-    Object.hasOwn(hiddenFieldResult.ranges[0]?.members?.[0] ?? {}, 'isHidden'),
+    Object.hasOwn(hiddenFieldResult.overloads[0]?.member ?? {}, 'isHidden'),
     false,
   );
   assert.equal(hiddenFieldResult.resolvedTarget.typePath?.[0]?.isHidden, false);

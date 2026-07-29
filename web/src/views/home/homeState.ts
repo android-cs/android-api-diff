@@ -22,7 +22,8 @@ import {
 } from '@vueuse/core';
 import type { ClassMember, ClassMemberParam } from '@android-cs/api-parser';
 import { isConstructorReference } from '@android-cs/api-query';
-import { computed, onScopeDispose, onUnmounted, watch } from 'vue';
+import { getAndroidApiOverloadId } from '@android-cs/api-query/query';
+import { computed, onScopeDispose, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 export const ANDROID_PREFIX_LEN = 'android-'.length;
@@ -117,6 +118,19 @@ const formatMemberType = (member: ClassMember) => {
   }
   return formatNullableType(member.type, member.fieldNullability);
 };
+
+const formatMemberOverloadLabel = (member: ClassMember): string => {
+  if (!('parameters' in member)) return member.name;
+  return `${member.name}(${member.parameters
+    .map((parameter) => parameter.type)
+    .join(', ')})`;
+};
+
+export interface DiffOverloadOption {
+  key: string;
+  label: string;
+  parameterCount: number;
+}
 
 export const skipNextAutoDiffOnReload = () => {
   sessionStorage.setItem(SKIP_NEXT_AUTO_DIFF_STATE_KEY, '1');
@@ -236,6 +250,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
   });
   const isValidSearchRef = computed(() => !!searchFromData.value.targetUrl);
+  const selectedOverloadKey = ref<string | null>(null);
 
   const saveValidSearchHistory = (value = searchRef.value) => {
     const ref = value.trim();
@@ -273,16 +288,24 @@ export const useSharedHomeState = createSharedComposable(() => {
   });
 
   const colorCache = new Map<string, string>();
-  watch(searchFromData, () => colorCache.clear());
-  const getCachedTypeColor = (key: string) => {
+  const selectedColorCache = new Map<string, string>();
+  watch(searchFromData, () => {
+    colorCache.clear();
+    selectedColorCache.clear();
+    selectedOverloadKey.value = null;
+  });
+  const getCachedColor = (cache: Map<string, string>, key: string) => {
     if (!key) return '';
-    const v = colorCache.get(key);
+    const v = cache.get(key);
     if (v) return v;
-    let i = colorCache.size;
+    let i = cache.size;
     const color = colors[i % colors.length];
-    colorCache.set(key, color);
+    cache.set(key, color);
     return color;
   };
+  const getCachedTypeColor = (key: string) => getCachedColor(colorCache, key);
+  const getCachedSelectedTypeColor = (key: string) =>
+    getCachedColor(selectedColorCache, key);
 
   const diffResultList = computed<DiffResultItem[]>(() => {
     const builder = urlBuilder.value;
@@ -351,14 +374,69 @@ export const useSharedHomeState = createSharedComposable(() => {
       })
       .filter((v): v is DiffResultItem => !!v);
   });
+  const overloadOptions = computed<DiffOverloadOption[]>(() => {
+    if (
+      searchFromData.value.targetKind !== 'member' ||
+      !searchFromData.value.filePath.endsWith('.java')
+    ) {
+      return [];
+    }
+    const options = new Map<string, DiffOverloadOption>();
+    for (const result of diffResultList.value) {
+      for (const member of result.members ?? []) {
+        if (!('parameters' in member)) continue;
+        const key = getAndroidApiOverloadId(member);
+        if (options.has(key)) continue;
+        options.set(key, {
+          key,
+          label: formatMemberOverloadLabel(member),
+          parameterCount: member.parameterCount ?? 0,
+        });
+      }
+    }
+    return Array.from(options.values()).sort(
+      (a, b) =>
+        a.parameterCount - b.parameterCount || a.label.localeCompare(b.label),
+    );
+  });
+  watch(overloadOptions, (options) => {
+    const selected = selectedOverloadKey.value;
+    if (selected && !options.some((option) => option.key === selected)) {
+      selectedOverloadKey.value = null;
+    }
+  });
+
+  const displayDiffResultList = computed<DiffResultItem[]>(() => {
+    const selected = selectedOverloadKey.value;
+    if (!selected) return diffResultList.value;
+    return diffResultList.value.map((result) => {
+      const member = result.members?.find(
+        (candidate) => getAndroidApiOverloadId(candidate) === selected,
+      );
+      const signatureNotFound = !result.notFound && !!result.target && !member;
+      const typeDesc = member
+        ? formatMemberType(member)
+        : signatureNotFound
+          ? 'Signature not found'
+          : '';
+      return {
+        ...result,
+        members: member ? [member] : [],
+        typeDesc,
+        typeColor: member
+          ? getCachedSelectedTypeColor(typeDesc)
+          : NOT_FOUND_TYPE_COLOR,
+      };
+    });
+  });
   const getDiffResult = (tag: string): DiffResultItem | undefined => {
-    return diffResultList.value.find((v) => v.tag === tag);
+    return displayDiffResultList.value.find((v) => v.tag === tag);
   };
 
   const diffTypeReult = useEqualComputed<DiffTypeItem[]>(() => {
     const list: DiffTypeItem[] = [];
     androidOrderTags.value.forEach((tag, index) => {
-      const res = getDiffResult(tag);
+      const res = displayDiffResultList.value.find((v) => v.tag === tag);
       let typeItem: DiffTypeItem | undefined;
       if (res) {
         typeItem = list.find(
@@ -446,27 +524,29 @@ export const useSharedHomeState = createSharedComposable(() => {
     saveValidSearchHistory(ref);
   };
 
-  const androidVersionColors = useEqualComputed<Record<string, string[]>>(
-    () => {
-      const map: Record<string, string[]> = {};
-      filteredAndroidVersionList.value.forEach((v) => {
-        map[v.version] = Array.from(
-          new Set(
-            diffResultList.value
-              .filter((d) => v.tags.includes(d.tag))
-              .map((d) => d.typeColor),
-          ),
-        );
-      });
-      return map;
-    },
-  );
+  const displayAndroidVersionColors = useEqualComputed<
+    Record<string, string[]>
+  >(() => {
+    const map: Record<string, string[]> = {};
+    filteredAndroidVersionList.value.forEach((v) => {
+      map[v.version] = Array.from(
+        new Set(
+          displayDiffResultList.value
+            .filter((d) => v.tags.includes(d.tag))
+            .map((d) => d.typeColor),
+        ),
+      );
+    });
+    return map;
+  });
 
   return {
     searchFromData,
     isCanParsedUrl,
     diffResultList,
     diffTypeReult,
+    overloadOptions,
+    selectedOverloadKey,
     handleDiff,
     isValidSearchRef,
     searchRef,
@@ -479,7 +559,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     getDiffResult,
     urlBuilder,
     androidVersionList: filteredAndroidVersionList,
-    androidVersionColors,
+    androidVersionColors: displayAndroidVersionColors,
     diffConcurrentCount,
     diffConcurrentCountOptions,
     minSdk,

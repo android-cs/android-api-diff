@@ -42,9 +42,10 @@ const queryValue = {
     checkedTags: 0,
     foundTags: 0,
     rangeCount: 0,
-    signatures: [],
+    overloadCount: 0,
   },
   ranges: [],
+  overloads: [],
 };
 
 const etagTag = (

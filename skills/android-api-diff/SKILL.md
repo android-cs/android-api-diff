@@ -40,6 +40,13 @@ For `query`, describe range endpoints as the first or last tag checked in the
 current snapshot. A `last-checked` endpoint is not a promise that no later
 revision exists.
 
+For member queries, treat `result.overloads` as the source of truth. Each item
+has a stable `overloadId`, its latest checked `signature` and `member`, and
+independent `ranges`. A range with `missingReason: "overload-not-found"` means
+the member name exists in that source revision but that specific parameter
+signature does not. Use top-level `result.ranges[].overloadIds` only when
+describing which overloads were available together.
+
 On a nonzero exit code, read the structured JSON error from stderr and report its
 `error.code` and `error.message`. Do not add an automatic retry: the CLI network
 layer already retries transient fetches.
