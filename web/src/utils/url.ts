@@ -3,6 +3,7 @@ export {
   fixFilePath,
   getGoogleSourceUrl,
   getMirrorContentUrl,
+  getMirrorSourceUrl,
   getSourceUrlWithLine,
   getVersionUrlBuilder,
   mirrorContentBaseUrl,

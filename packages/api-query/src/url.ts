@@ -31,7 +31,7 @@ const mirrorContentRegs = [
 export const sourceLinkTargetOptions = [
   'cs.android.com',
   'googlesource',
-  'githubusercontent',
+  'github',
 ] as const;
 export type SourceLinkTarget = (typeof sourceLinkTargetOptions)[number];
 export const DEFAULT_SOURCE_LINK_TARGET: SourceLinkTarget = 'cs.android.com';
@@ -52,6 +52,21 @@ export const getMirrorContentUrl = (filePath: string): string => {
     }
   }
   return mirrorContentBaseUrl + filePath;
+};
+
+export const getMirrorSourceUrl = (filePath: string): string => {
+  const contentUrl = getMirrorContentUrl(filePath);
+  const path = contentUrl.substring(mirrorContentBaseUrl.indexOf('//') + 2);
+  const [host, owner, repository, ...refAndFilePath] = path.split('/');
+  if (
+    host !== 'raw.githubusercontent.com' ||
+    !owner ||
+    !repository ||
+    refAndFilePath.length === 0
+  ) {
+    return contentUrl;
+  }
+  return `https://github.com/${owner}/${repository}/blob/${refAndFilePath.join('/')}`;
 };
 
 export const fixFilePath = (filePath: string): string => {
@@ -146,7 +161,7 @@ export const getSourceUrlWithLine = (u: string, line: number): string => {
   if (u.startsWith(csBaseUrl)) {
     return `${u};l=${line}`;
   }
-  if (u.startsWith(mirrorBaseUrl)) {
+  if (u.startsWith('https://github.com/')) {
     return `${u}#L${line}`;
   }
   if (u.startsWith(sourceBaseurl)) {

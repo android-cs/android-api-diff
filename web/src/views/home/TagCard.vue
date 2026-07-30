@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   getGoogleSourceUrl,
-  getMirrorContentUrl,
+  getMirrorSourceUrl,
   getSourceUrlWithLine,
 } from '@/utils/url';
 import { computed } from 'vue';
@@ -48,8 +48,9 @@ const sourceUrl = computed<string | undefined>(() => {
     const u = getGoogleSourceUrl(props.tag + builder.filePath);
     return loc ? getSourceUrlWithLine(u, loc) : u;
   }
-  if (sourceLinkTarget.value === 'githubusercontent') {
-    return getMirrorContentUrl(props.tag + builder.filePath);
+  if (sourceLinkTarget.value === 'github') {
+    const u = getMirrorSourceUrl(props.tag + builder.filePath);
+    return loc ? getSourceUrlWithLine(u, loc) : u;
   }
   const u = t[0] + props.tag + t[1];
   if (loc) {

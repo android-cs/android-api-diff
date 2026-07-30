@@ -69,6 +69,9 @@ const normalizeMinSdk = (value: unknown) => {
 };
 
 const normalizeSourceLinkTarget = (value: unknown): SourceLinkTarget => {
+  if (value === 'githubusercontent') {
+    return 'github';
+  }
   if (
     typeof value === 'string' &&
     (sourceLinkTargetOptions as readonly string[]).includes(value)
