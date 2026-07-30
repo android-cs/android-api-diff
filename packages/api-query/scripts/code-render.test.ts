@@ -165,7 +165,7 @@ const baseResult = (
   assert.match(result.code, /public class ContentObserver \{/);
   assert.match(
     result.code,
-    /public ContentObserver\(Handler handler\) \{ throw new RuntimeException\(\); \}/,
+    /public ContentObserver\(Handler handler\) \{\n        throw new RuntimeException\(\);\n    \}/,
   );
   assert.doesNotMatch(result.code, /class database/);
 }
@@ -203,11 +203,11 @@ const baseResult = (
   assert.match(result.code, /public abstract String getValue\(\);/);
   assert.doesNotMatch(
     result.code,
-    /getValue\(\) \{ throw new RuntimeException\(\); \}/,
+    /getValue\(\) \{\n        throw new RuntimeException\(\);\n    \}/,
   );
   assert.match(
     result.code,
-    /public String getValue\(int flags\) \{ throw new RuntimeException\(\); \}/,
+    /public String getValue\(int flags\) \{\n        throw new RuntimeException\(\);\n    \}/,
   );
 }
 
@@ -222,8 +222,41 @@ const baseResult = (
     ),
   );
 
-  assert.match(result.code, /public void clear\(\) \{\}/);
+  assert.match(result.code, /public void clear\(\) \{\n    \}/);
   assert.doesNotMatch(result.code, /clear\(\).*RuntimeException/);
+}
+
+{
+  const result = renderAndroidApiCodeWithMemberCode(
+    baseResult(
+      'Outer.Inner.setDisplayId',
+      'core/java/android/example/Outer.java',
+      ['Outer', 'Inner', 'setDisplayId'],
+      [
+        range('15', 'VANILLA_ICE_CREAM', 35, 'android-15.0.0_r1', [
+          method('void', [{ name: 'displayId', type: 'int' }], 'setDisplayId'),
+          method('int', [], 'getDisplayId'),
+        ]),
+      ],
+      [
+        { name: 'Outer', kind: 'class', isHidden: true },
+        { name: 'Inner', kind: 'class', isHidden: true },
+      ],
+    ),
+  );
+
+  assert.match(
+    result.code,
+    /        public int getDisplayId\(\) \{\n            throw new RuntimeException\(\);\n        \}/,
+  );
+  assert.match(
+    result.code,
+    /        public void setDisplayId\(int displayId\) \{\n        \}/,
+  );
+  assert.match(
+    result.memberCode,
+    /^        public int getDisplayId\(\) \{\n            throw new RuntimeException\(\);\n        \}/,
+  );
 }
 
 {

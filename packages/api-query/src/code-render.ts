@@ -76,6 +76,14 @@ const qualifiedTypeReg = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g;
 
 const indent = (level: number) => '    '.repeat(level);
 
+const formatConcreteBody = (level: number, statements: string[] = []) => {
+  return [
+    ' {',
+    ...statements.map((statement) => `${indent(level + 1)}${statement}`),
+    `${indent(level)}}`,
+  ].join('\n');
+};
+
 const toStartVersionInfo = (
   range: AndroidApiVersionRange,
 ): AndroidVersionInfo => {
@@ -829,8 +837,8 @@ const formatMethodDeclaration = (
   const body = isAbstract
     ? ';'
     : member.returnType === 'void'
-      ? ' {}'
-      : ' { throw new RuntimeException(); }';
+      ? formatConcreteBody(level)
+      : formatConcreteBody(level, ['throw new RuntimeException();']);
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.returnType,
     member.returnNullability,
@@ -857,7 +865,10 @@ const formatConstructorDeclaration = (
       ),
     )
     .join(', ');
-  return `${indent(level)}public ${member.name}(${parameters}) { throw new RuntimeException(); }`;
+  return `${indent(level)}public ${member.name}(${parameters})${formatConcreteBody(
+    level,
+    ['throw new RuntimeException();'],
+  )}`;
 };
 
 const formatFieldDeclaration = (
