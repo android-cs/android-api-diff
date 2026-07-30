@@ -4,3 +4,4 @@ export * from './resolve.ts';
 export * from './struct.ts';
 export * from './types.ts';
 export * from './url.ts';
+export * from './valueInterner.ts';

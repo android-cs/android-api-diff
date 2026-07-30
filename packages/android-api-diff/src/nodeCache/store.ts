@@ -3,6 +3,7 @@ import type {
   AndroidApiStructCacheEntry,
   CacheStore,
 } from '@android-cs/api-query';
+import { BoundedContentValueInterner } from '@android-cs/api-query';
 import type {
   TextEtagCache,
   TextEtagRepresentation,
@@ -69,6 +70,7 @@ class SqliteCacheStore<T> implements CacheStore<T> {
   private readonly codec: BinaryCacheCodec<T>;
   private readonly domain: NodeCacheDomain;
   private readonly lifecycle: CacheStoreLifecycle;
+  private readonly interner?: BoundedContentValueInterner<T>;
   private readonly readFlights = new Map<string, Promise<T | undefined>>();
   private readonly writeFlights = new Map<string, PendingWrite>();
 
@@ -77,11 +79,13 @@ class SqliteCacheStore<T> implements CacheStore<T> {
     domain: NodeCacheDomain,
     codec: BinaryCacheCodec<T>,
     lifecycle: CacheStoreLifecycle,
+    interner?: BoundedContentValueInterner<T>,
   ) {
     this.cache = cache;
     this.domain = domain;
     this.codec = codec;
     this.lifecycle = lifecycle;
+    this.interner = interner;
   }
 
   async get(key: string): Promise<T | undefined> {
@@ -122,8 +126,11 @@ class SqliteCacheStore<T> implements CacheStore<T> {
     const cached = await this.cache.readRaw(this.domain, keyHash);
     if (!cached) return;
 
+    const interned = this.interner?.get(cached.contentHash);
+    if (interned !== undefined) return interned;
     try {
-      return this.codec.decode(cached.rawValue);
+      const value = this.codec.decode(cached.rawValue);
+      return this.interner?.intern(cached.contentHash, value) ?? value;
     } catch {
       await this.cache.invalidate(
         this.domain,
@@ -132,6 +139,16 @@ class SqliteCacheStore<T> implements CacheStore<T> {
         cached.generation,
       );
       return;
+    }
+  }
+
+  intern(value: T): T {
+    if (!this.interner) return value;
+    try {
+      const rawValue = this.codec.encode(value);
+      return this.interner.intern(hashBytes(rawValue), value);
+    } catch {
+      return value;
     }
   }
 
@@ -155,6 +172,7 @@ class SqliteCacheStore<T> implements CacheStore<T> {
     const keyHash = hashString(key);
     const rawValue = this.codec.encode(value);
     const contentHash = hashBytes(rawValue);
+    this.interner?.intern(contentHash, value);
     const current = this.writeFlights.get(keyHash);
     if (current?.contentHash === contentHash) return current.promise;
 
@@ -292,6 +310,8 @@ export const createNodeCacheStores = (
     options.removeLegacyDirectories === true,
   );
   const lifecycle = new CacheStoreLifecycle();
+  const structInterner =
+    new BoundedContentValueInterner<AndroidApiStructCacheEntry>(256);
   return {
     close: () => lifecycle.close(() => cache.close()),
     databasePath: cache.databasePath,
@@ -306,6 +326,7 @@ export const createNodeCacheStores = (
       NODE_CACHE_DOMAINS.struct,
       jsonCodec<AndroidApiStructCacheEntry>(),
       lifecycle,
+      structInterner,
     ),
     textEtagCache: new SqliteTextEtagCache(cache, lifecycle),
     textCache: new SqliteCacheStore(

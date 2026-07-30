@@ -60,6 +60,11 @@ export interface FileTarget {
 export interface CacheStore<T> {
   get(key: string): Promise<T | undefined>;
   set(key: string, value: T): Promise<void>;
+  /**
+   * Returns the canonical in-memory instance for this serialized value when
+   * the store supports content-based object reuse.
+   */
+  intern?(value: T): T;
 }
 
 /** @deprecated Source-file downloads always use GitHub. */

@@ -1,4 +1,5 @@
 import type { ApiFile } from '@android-cs/api-parser';
+import { BoundedContentValueInterner } from '@android-cs/api-query';
 import {
   readCacheValue,
   writeCacheBytesIfAvailable,
@@ -24,6 +25,8 @@ import { updateStorageEstimate } from './storageEstimate';
 interface UrlCacheKeyBuilder {
   (url: string): string;
 }
+
+const apiFileInterner = new BoundedContentValueInterner<ApiFile>(256);
 
 const scheduleStorageEstimateUpdate = (): void => {
   void updateStorageEstimate().catch(() => undefined);
@@ -100,18 +103,20 @@ export const getOrSetApiFileCache = async (
         }
         return value as ApiFile;
       },
+      apiFileInterner,
     ).catch(() => undefined);
     if (cached !== undefined) return cached;
 
     const value = await fallback();
-    await writeCacheBytesIfAvailable(
+    const bytes = encodeText(JSON.stringify(value));
+    const contentHash = await writeCacheBytesIfAvailable(
       STRUCT_DOMAIN,
       keyHash,
-      encodeText(JSON.stringify(value)),
+      bytes,
       expectedEpoch,
       scheduleStorageEstimateUpdate,
     );
-    return value;
+    return contentHash ? apiFileInterner.intern(contentHash, value) : value;
   });
 };
 
@@ -135,6 +140,7 @@ export const check404File = async (filePath: string): Promise<boolean> => {
 
 export const clearLocalCache = async (): Promise<void> => {
   invalidateLocalFlights();
+  apiFileInterner.clear();
   broadcastCacheReset();
   await resetCacheDatabases(updateStorageEstimate);
 };

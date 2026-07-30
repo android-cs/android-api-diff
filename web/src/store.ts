@@ -11,6 +11,7 @@ import {
 import pLimit from 'p-limit';
 import { shallowReactive, shallowRef } from 'vue';
 import { emptyArray } from './utils/constants.ts';
+import { sha256String } from './utils/cache/compression.ts';
 import { updateStorageEstimate } from './utils/storageEstimate.ts';
 import { getMirrorContentUrl } from './utils/url.ts';
 import defer * as androidApiParser from '@android-cs/api-parser';
@@ -28,6 +29,56 @@ export const fileApiMap = shallowReactive<Record<string, ApiFile>>({});
 export const notFoundFileMap = shallowReactive<Record<string, boolean>>({});
 
 const limit = pLimit(5);
+const MAX_PARSED_SOURCE_ENTRIES = 256;
+const parsedApiFilesBySource = new Map<string, ApiFile>();
+const parsedApiFileFlights = new Map<string, Promise<ApiFile>>();
+
+const rememberParsedApiFile = (sourceKey: string, file: ApiFile): ApiFile => {
+  const current = parsedApiFilesBySource.get(sourceKey);
+  if (current) {
+    parsedApiFilesBySource.delete(sourceKey);
+    parsedApiFilesBySource.set(sourceKey, current);
+    return current;
+  }
+  parsedApiFilesBySource.set(sourceKey, file);
+  if (parsedApiFilesBySource.size > MAX_PARSED_SOURCE_ENTRIES) {
+    const oldestKey = parsedApiFilesBySource.keys().next().value;
+    if (oldestKey !== undefined) parsedApiFilesBySource.delete(oldestKey);
+  }
+  return file;
+};
+
+const replaceParsedApiFile = (sourceKey: string, file: ApiFile): void => {
+  parsedApiFilesBySource.delete(sourceKey);
+  parsedApiFilesBySource.set(sourceKey, file);
+  if (parsedApiFilesBySource.size > MAX_PARSED_SOURCE_ENTRIES) {
+    const oldestKey = parsedApiFilesBySource.keys().next().value;
+    if (oldestKey !== undefined) parsedApiFilesBySource.delete(oldestKey);
+  }
+};
+
+const getOrParseApiFile = (
+  sourceKey: string,
+  parse: () => ApiFile | Promise<ApiFile>,
+): Promise<ApiFile> => {
+  const cached = parsedApiFilesBySource.get(sourceKey);
+  if (cached) return Promise.resolve(rememberParsedApiFile(sourceKey, cached));
+  const current = parsedApiFileFlights.get(sourceKey);
+  if (current) return current;
+
+  const promise = Promise.resolve()
+    .then(parse)
+    .then((file) => rememberParsedApiFile(sourceKey, file));
+  parsedApiFileFlights.set(sourceKey, promise);
+  const clear = () => {
+    if (parsedApiFileFlights.get(sourceKey) === promise) {
+      parsedApiFileFlights.delete(sourceKey);
+    }
+  };
+  void promise.then(clear, clear);
+  return promise;
+};
+
 export const pullApiFileByUrl = async (
   filePath: string,
   signal: AbortController,
@@ -35,6 +86,7 @@ export const pullApiFileByUrl = async (
   const temp = fileApiMap[filePath];
   if (temp) return temp;
   const url = getMirrorContentUrl(filePath);
+  let parsedSourceKey: string | undefined;
   const file = await getOrSetApiFileCache(filePath, async () => {
     const text = await limit(() => {
       if (signal.signal.aborted) {
@@ -42,20 +94,38 @@ export const pullApiFileByUrl = async (
       }
       return persistentFetch(url);
     });
-    let file: ApiFile = {
-      package: '',
-      imports: [],
-      structs: [],
-    };
-    if (text.startsWith('404:')) {
-    } else if (url.endsWith('.aidl')) {
-      file = androidApiParser.parseAIDLFile(text);
-    } else if (url.endsWith('.java')) {
-      file = androidApiParser.parseJavaFile(text);
-    } else {
-      // unsupported file type
+    const parserKind = url.endsWith('.aidl')
+      ? 'aidl'
+      : url.endsWith('.java')
+        ? 'java'
+        : 'unsupported';
+    const sourceHash = text.startsWith('404:')
+      ? 'not-found'
+      : await sha256String(text);
+    const sourceKey = `${parserKind}:${sourceHash}`;
+    parsedSourceKey = sourceKey;
+    const memoryCached = parsedApiFilesBySource.get(sourceKey);
+    if (memoryCached) {
+      return rememberParsedApiFile(sourceKey, memoryCached);
     }
-    return file;
+    const parsed = await getOrSetApiFileCache(
+      `struct-content:${sourceKey}`,
+      () =>
+        getOrParseApiFile(sourceKey, async () => {
+          if (text.startsWith('404:') || parserKind === 'unsupported') {
+            return {
+              package: '',
+              imports: [],
+              structs: [],
+            };
+          }
+          return parserKind === 'aidl'
+            ? androidApiParser.parseAIDLFile(text)
+            : androidApiParser.parseJavaFile(text);
+        }),
+    );
+    replaceParsedApiFile(sourceKey, parsed);
+    return parsed;
   }).catch(() => {});
   if (!file) {
     return {
@@ -69,6 +139,9 @@ export const pullApiFileByUrl = async (
     if (is404) {
       notFoundFileMap[filePath] = is404;
     }
+  }
+  if (parsedSourceKey) {
+    replaceParsedApiFile(parsedSourceKey, file);
   }
   fileApiMap[filePath] = file;
   return file;

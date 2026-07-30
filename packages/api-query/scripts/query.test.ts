@@ -4,12 +4,14 @@ import { loadAndroidVersionList } from '../src/data.ts';
 import {
   normalizeAndroidApiMemberRanges,
   queryAndroidApi,
+  STRUCT_CACHE_VERSION,
 } from '../src/query.ts';
 import { searchFilePathByRefName } from '../src/resolve.ts';
 import { toAndroidApiResolvedType } from '../src/struct.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryRuntime,
+  AndroidApiStructCacheEntry,
 } from '../src/types.ts';
 
 const version13Tags = [
@@ -570,6 +572,54 @@ public interface IExample {
   assert.equal(fetchedUrls.length, 1);
   assert.deepEqual([...cachedTexts.keys()], [cacheKey]);
   assert.equal(cachedTexts.get(cacheKey), source);
+}
+
+{
+  const source = `
+package android.app;
+
+public interface IExample {
+  int ping();
+}
+`;
+  const structs = new Map<string, AndroidApiStructCacheEntry>();
+  const contentReuseRuntime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => ['core/java/android/app/IExample.java'],
+    loadAndroidVersionList: async () => [
+      {
+        version: '13',
+        alias: 'TIRAMISU',
+        apiVersion: 33,
+        tags: ['android-13.0.0_r2', 'android-13.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async () => source,
+    structCache: {
+      get: async (key) => structs.get(key),
+      set: async (key, value) => {
+        structs.set(key, value);
+      },
+    },
+  };
+
+  const result = await queryAndroidApi(contentReuseRuntime, {
+    apiName: 'IExample.ping',
+    minSdk: 33,
+    concurrency: 2,
+  });
+  const taggedValues = Array.from(structs)
+    .filter(([key]) => key.startsWith(`${STRUCT_CACHE_VERSION}:android-`))
+    .map(([, value]) => value);
+  const contentValue = Array.from(structs).find(([key]) =>
+    key.startsWith(`${STRUCT_CACHE_VERSION}:content:java:`),
+  )?.[1];
+
+  assert.equal(result.summary.checkedTags, 2);
+  assert.equal(taggedValues.length, 2);
+  assert.ok(contentValue);
+  assert.strictEqual(taggedValues[0], taggedValues[1]);
+  assert.strictEqual(taggedValues[0], contentValue);
 }
 
 {

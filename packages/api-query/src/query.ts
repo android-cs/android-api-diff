@@ -28,6 +28,124 @@ import { getMirrorContentUrl } from './url.ts';
 export const STRUCT_CACHE_VERSION = 'struct:v11';
 export const QUERY_CACHE_VERSION = 'query:v23';
 const DEFAULT_CONCURRENCY = 3;
+const MAX_STRUCT_CONTENT_ENTRIES = 256;
+
+interface StructContentMemo {
+  values: Map<string, AndroidApiStructCacheEntry>;
+  flights: Map<string, Promise<AndroidApiStructCacheEntry>>;
+}
+
+const structContentMemos = new WeakMap<
+  AndroidApiQueryRuntime,
+  StructContentMemo
+>();
+const structSourceEncoder = new TextEncoder();
+
+const getStructContentMemo = (
+  runtime: AndroidApiQueryRuntime,
+): StructContentMemo => {
+  let memo = structContentMemos.get(runtime);
+  if (!memo) {
+    memo = {
+      values: new Map(),
+      flights: new Map(),
+    };
+    structContentMemos.set(runtime, memo);
+  }
+  return memo;
+};
+
+const rememberStructContent = (
+  memo: StructContentMemo,
+  contentKey: string,
+  value: AndroidApiStructCacheEntry,
+): AndroidApiStructCacheEntry => {
+  const current = memo.values.get(contentKey);
+  if (current) {
+    memo.values.delete(contentKey);
+    memo.values.set(contentKey, current);
+    return current;
+  }
+  memo.values.set(contentKey, value);
+  if (memo.values.size > MAX_STRUCT_CONTENT_ENTRIES) {
+    const oldestKey = memo.values.keys().next().value;
+    if (oldestKey !== undefined) memo.values.delete(oldestKey);
+  }
+  return value;
+};
+
+const hashStructSource = async (text: string): Promise<string> => {
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    structSourceEncoder.encode(text),
+  );
+  return new Uint8Array(digest).toBase64({
+    alphabet: 'base64url',
+    omitPadding: true,
+  });
+};
+
+const getStructContentKey = async (
+  taggedFilePath: string,
+  text: string,
+  sourceFileNotFound: boolean,
+): Promise<string> => {
+  const parserKind = taggedFilePath.endsWith('.aidl')
+    ? 'aidl'
+    : taggedFilePath.endsWith('.java')
+      ? 'java'
+      : 'unsupported';
+  const sourceHash = sourceFileNotFound
+    ? 'not-found'
+    : await hashStructSource(text);
+  return `${parserKind}:${sourceHash}`;
+};
+
+const getStructsByContent = async (
+  runtime: AndroidApiQueryRuntime,
+  contentKey: string,
+  text: string,
+  sourceFileNotFound: boolean,
+): Promise<AndroidApiStructCacheEntry> => {
+  const memo = getStructContentMemo(runtime);
+  const memoized = memo.values.get(contentKey);
+  if (memoized) return rememberStructContent(memo, contentKey, memoized);
+  const current = memo.flights.get(contentKey);
+  if (current) return current;
+
+  const promise = (async () => {
+    const persistentKey = `${STRUCT_CACHE_VERSION}:content:${contentKey}`;
+    const persistent = await runtime.structCache?.get(persistentKey);
+    if (persistent) return persistent;
+
+    let file: ApiFile = {
+      package: '',
+      imports: [],
+      structs: [],
+    };
+    if (!sourceFileNotFound && contentKey.startsWith('aidl:')) {
+      file = parseAIDLFile(text);
+    } else if (!sourceFileNotFound && contentKey.startsWith('java:')) {
+      file = parseJavaFile(text);
+    }
+    const parsed: AndroidApiStructCacheEntry = {
+      file,
+      sourceFileNotFound,
+    };
+    const value = runtime.structCache?.intern?.(parsed) ?? parsed;
+    await runtime.structCache?.set(persistentKey, value);
+    return value;
+  })();
+  memo.flights.set(contentKey, promise);
+  try {
+    const value = await promise;
+    return rememberStructContent(memo, contentKey, value);
+  } finally {
+    if (memo.flights.get(contentKey) === promise) {
+      memo.flights.delete(contentKey);
+    }
+  }
+};
 
 interface InternalAndroidApiVersionResult {
   version: string;
@@ -92,20 +210,17 @@ const getStructsByTaggedFile = async (
     taggedFilePath,
     signal,
   );
-  let file: ApiFile = {
-    package: '',
-    imports: [],
-    structs: [],
-  };
-  if (!sourceFileNotFound && taggedFilePath.endsWith('.aidl')) {
-    file = parseAIDLFile(text);
-  } else if (!sourceFileNotFound && taggedFilePath.endsWith('.java')) {
-    file = parseJavaFile(text);
-  }
-  const result: AndroidApiStructCacheEntry = {
-    file,
+  const contentKey = await getStructContentKey(
+    taggedFilePath,
+    text,
     sourceFileNotFound,
-  };
+  );
+  const result = await getStructsByContent(
+    runtime,
+    contentKey,
+    text,
+    sourceFileNotFound,
+  );
   await runtime.structCache?.set(structKey, result);
   return result;
 };

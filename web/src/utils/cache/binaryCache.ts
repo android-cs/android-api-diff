@@ -1,4 +1,5 @@
 import { gunzip, gzip, sha256Hash } from './compression';
+import type { ContentValueInterner } from '@android-cs/api-query';
 import { MAX_CACHE_ENTRY_BYTES, type CacheDomain } from './config';
 import { getDatabase } from './database';
 import {
@@ -106,11 +107,15 @@ export const readCacheValue = async <T>(
   domain: CacheDomain,
   keyHash: string,
   decode: (bytes: Uint8Array) => T,
+  interner?: ContentValueInterner<T>,
 ): Promise<T | undefined> => {
   const cached = await readCacheBytes(domain, keyHash);
   if (!cached) return undefined;
+  const interned = interner?.get(cached.contentHash);
+  if (interned !== undefined) return interned;
   try {
-    return decode(cached.bytes);
+    const value = decode(cached.bytes);
+    return interner?.intern(cached.contentHash, value) ?? value;
   } catch {
     await cleanupBrokenEntry(
       domain,
@@ -165,13 +170,12 @@ const writeBlobAndRef = async (
 const writeCacheBytes = async (
   domain: CacheDomain,
   keyHash: string,
+  contentHash: string,
   bytes: Uint8Array,
   expectedEpoch: number,
 ): Promise<boolean> => {
   if (expectedEpoch !== getCacheEpoch()) return false;
   if (bytes.byteLength > MAX_CACHE_ENTRY_BYTES) return false;
-  const contentHash = await sha256Hash(bytes);
-  if (expectedEpoch !== getCacheEpoch()) return false;
   if (
     await linkExistingBlob(
       domain,
@@ -226,12 +230,17 @@ export const writeCacheBytesIfAvailable = async (
   bytes: Uint8Array,
   expectedEpoch: number,
   onStored: () => void,
-): Promise<void> => {
+): Promise<string | undefined> => {
+  let contentHash: string | undefined;
   try {
-    if (await writeCacheBytes(domain, keyHash, bytes, expectedEpoch)) {
+    contentHash = await sha256Hash(bytes);
+    if (
+      await writeCacheBytes(domain, keyHash, contentHash, bytes, expectedEpoch)
+    ) {
       onStored();
     }
   } catch (error) {
     console.warn('Failed to persist API cache value', error);
   }
+  return contentHash;
 };

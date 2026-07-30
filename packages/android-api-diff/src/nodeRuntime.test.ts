@@ -204,6 +204,32 @@ test('deduplicates compressed blobs and removes only known legacy directories', 
   }
 });
 
+test('reuses one decoded struct object across content-equivalent keys', async () => {
+  const cacheDir = await createCacheDir();
+  let stores: ReturnType<typeof createNodeCacheStores> | undefined;
+
+  try {
+    stores = createNodeCacheStores(cacheDir);
+    await stores.structCache.set('android-1/Example.java', structValue);
+    await stores.structCache.set(
+      'android-2/Example.java',
+      structuredClone(structValue),
+    );
+    await stores.close();
+
+    stores = createNodeCacheStores(cacheDir);
+    const first = await stores.structCache.get('android-1/Example.java');
+    const second = await stores.structCache.get('android-2/Example.java');
+
+    assert.ok(first);
+    assert.strictEqual(second, first);
+    assert.notStrictEqual(first, structValue);
+  } finally {
+    await stores?.close();
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('stores schema metadata once and omits scope and codec from data rows', async () => {
   const cacheDir = await createCacheDir();
   const stores = createNodeCacheStores(cacheDir);
