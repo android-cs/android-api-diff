@@ -1,6 +1,6 @@
 {
   "name": "android-api-diff",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Inspect Android framework API changes and generate hidden-API Java code",
   "type": "module",
   "keywords": [

@@ -3,9 +3,6 @@
 <!-- Keep only the latest release notes here. Do not include a version number or
 append older releases. Replace the entries below when publishing a new release. -->
 
-- Merge nullability annotations independently for fields, return values, and
-  parameters across every version of the same signature.
-- Format generated concrete method and constructor bodies as readable
-  multi-line Java source.
-- Refine overload selection so signature filtering and dropdown sizing remain
-  consistent.
+- Open web source links on GitHub source pages instead of raw content URLs.
+- Reuse parsed Java/AIDL API structures across content-identical Android tags
+  in Web and Node.js, avoiding redundant parsing and JSON deserialization.
