@@ -347,18 +347,133 @@ const baseResult = (
       ['UserInfo', 'name'],
       [
         range('8', 'O', 26, 'android-8.0.0_r1', [field()]),
-        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [field('nullable')]),
+        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [
+          { ...field('nullable'), imports: [0] },
+        ]),
       ],
+      undefined,
+      ['android.annotation.Nullable'],
     ),
   );
 
   assert.equal(result.declarations.length, 1);
+  assert.equal(result.declarations[0]?.member.fieldNullability, 'nullable');
   assert.match(result.code, /^package android\.content\.pm;/);
   assert.doesNotMatch(result.code, /@RequiresApi\(Build\.VERSION_CODES\.O\)/);
   assert.doesNotMatch(result.code, /@DeprecatedSinceApi/);
   assert.match(result.code, /import android\.annotation\.Nullable;/);
   assert.match(result.code, /public @Nullable String name;/);
   assert.doesNotMatch(result.code, /li\.songe\.remap\.RemapType/);
+}
+
+{
+  const result = renderAndroidApiCode(
+    baseResult(
+      'UserInfo.name',
+      'core/java/android/content/pm/UserInfo.java',
+      ['UserInfo', 'name'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [
+          { ...field('non-null'), imports: [0] },
+        ]),
+        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [
+          { ...field('non-null'), imports: [1] },
+        ]),
+      ],
+      undefined,
+      ['android.annotation.NonNull', 'android.annotation.RecentlyNonNull'],
+    ),
+  );
+
+  assert.equal(result.declarations.length, 1);
+  assert.equal(result.declarations[0]?.member.fieldNullability, 'non-null');
+  assert.match(result.code, /public @NonNull String name;/);
+}
+
+{
+  const result = renderAndroidApiCode(
+    baseResult(
+      'UserInfo.name',
+      'core/java/android/content/pm/UserInfo.java',
+      ['UserInfo', 'name'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [
+          { ...field('non-null'), imports: [0] },
+        ]),
+        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [field()]),
+      ],
+      undefined,
+      ['android.annotation.NonNull'],
+    ),
+  );
+
+  assert.equal(result.declarations.length, 1);
+  assert.equal(
+    Object.hasOwn(result.declarations[0]?.member ?? {}, 'fieldNullability'),
+    false,
+  );
+  assert.doesNotMatch(result.code, /android\.annotation\.(?:NonNull|Nullable)/);
+  assert.match(result.code, /public String name;/);
+}
+
+{
+  const firstMethod: AndroidApiMemberResult = {
+    ...method(
+      'String',
+      [
+        {
+          name: 'nullableParam',
+          type: 'String',
+          nullability: 'non-null',
+        },
+        { name: 'mixedParam', type: 'String', nullability: 'non-null' },
+        { name: 'nonNullParam', type: 'String', nullability: 'non-null' },
+      ],
+      'mergeNullability',
+    ),
+    imports: [0],
+    returnNullability: 'non-null',
+  };
+  const secondMethod: AndroidApiMemberResult = {
+    ...method(
+      'String',
+      [
+        { name: 'nullableParam', type: 'String', nullability: 'nullable' },
+        { name: 'mixedParam', type: 'String' },
+        { name: 'nonNullParam', type: 'String', nullability: 'non-null' },
+      ],
+      'mergeNullability',
+    ),
+    imports: [0, 1],
+    returnNullability: 'non-null',
+  };
+  const result = renderAndroidApiCode(
+    baseResult(
+      'Example.mergeNullability',
+      'core/java/android/example/Example.java',
+      ['Example', 'mergeNullability'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [firstMethod]),
+        range('13', 'TIRAMISU', 33, 'android-13.0.0_r1', [secondMethod]),
+      ],
+      undefined,
+      ['android.annotation.NonNull', 'android.annotation.Nullable'],
+    ),
+  );
+
+  assert.equal(result.declarations.length, 1);
+  const member = result.declarations[0]?.member;
+  assert.equal(member?.kind, 'method');
+  if (member?.kind !== 'method') assert.fail('Expected a method declaration');
+  assert.equal(member.returnNullability, 'non-null');
+  assert.equal(member.parameters[0]?.nullability, 'nullable');
+  assert.equal(Object.hasOwn(member.parameters[1] ?? {}, 'nullability'), false);
+  assert.equal(member.parameters[2]?.nullability, 'non-null');
+  assert.deepEqual(member.imports, []);
+  assert.match(
+    result.code,
+    /public @NonNull String mergeNullability\(@Nullable String nullableParam, String mixedParam, @NonNull String nonNullParam\)/,
+  );
 }
 
 {

@@ -18,7 +18,7 @@ import type {
 } from './types.ts';
 
 interface CodeDeclarationState {
-  member: AndroidApiMemberResult;
+  members: AndroidApiMemberResult[];
   signature: string;
   requiresApi: AndroidVersionInfo;
   deprecatedSinceApi?: AndroidVersionInfo;
@@ -73,6 +73,13 @@ const sourceFileReg = /\.(aidl|java)$/i;
 const androidTagPrefix = 'android-';
 const importPrefixReg = /^static\s+/;
 const qualifiedTypeReg = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g;
+const nullabilityAnnotationNames = new Set([
+  'nonnull',
+  'notnull',
+  'nullable',
+  'recentlynonnull',
+  'recentlynullable',
+]);
 
 const indent = (level: number) => '    '.repeat(level);
 
@@ -198,18 +205,132 @@ const formatMemberSignature = (member: AndroidApiMemberResult): string => {
   }:${member.isStatic ? 'static' : ''}:${member.imports.join(',')}`;
 };
 
-const formatMemberIdentityKey = (member: AndroidApiMemberResult): string => {
+const getMemberTypeTexts = (member: AndroidApiMemberResult): string[] => {
+  return 'parameters' in member
+    ? [
+        ...member.parameters.map((parameter) => parameter.type),
+        'returnType' in member ? member.returnType : member.name,
+      ]
+    : [member.type];
+};
+
+const getMemberIdentityImports = (
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+) => {
+  // Nullability changes declaration metadata, not the underlying Java member.
+  // Keep a matching import only when the annotation name is also a real type.
+  const typeNames = new Set(
+    getMemberTypeTexts(member).flatMap(
+      (type) => type.match(/[A-Za-z_$][\w$]*/g) ?? [],
+    ),
+  );
+  return member.imports.filter((index) => {
+    const importName = sourceImports[index];
+    if (importName === undefined) return true;
+    const simpleName = importName
+      .replace(importPrefixReg, '')
+      .split('.')
+      .at(-1);
+    return (
+      !simpleName ||
+      !nullabilityAnnotationNames.has(simpleName.toLowerCase()) ||
+      typeNames.has(simpleName)
+    );
+  });
+};
+
+const mergeNullabilities = (
+  nullabilities: Array<Nullability | undefined>,
+): Nullability | undefined => {
+  if (nullabilities.some((value) => value === 'nullable')) return 'nullable';
+  if (
+    nullabilities.length > 0 &&
+    nullabilities.every((value) => value === 'non-null')
+  ) {
+    return 'non-null';
+  }
+};
+
+const mergeParameterNullabilities = (
+  member: Extract<AndroidApiMemberResult, { parameters: unknown }>,
+  members: AndroidApiMemberResult[],
+) => {
+  return member.parameters.map((parameter, index) => {
+    const { nullability: _nullability, ...rest } = parameter;
+    const nullability = mergeNullabilities(
+      members.map((candidate) =>
+        'parameters' in candidate
+          ? candidate.parameters[index]?.nullability
+          : undefined,
+      ),
+    );
+    return {
+      ...rest,
+      ...(nullability ? { nullability } : {}),
+    };
+  });
+};
+
+const mergeMemberNullabilities = (
+  members: AndroidApiMemberResult[],
+  sourceImports: string[],
+): AndroidApiMemberResult => {
+  const member = members.at(-1)!;
+  const imports = getMemberIdentityImports(member, sourceImports);
+  if (!('parameters' in member)) {
+    const { fieldNullability: _fieldNullability, ...rest } = member;
+    const fieldNullability = mergeNullabilities(
+      members.map((candidate) =>
+        'parameters' in candidate ? undefined : candidate.fieldNullability,
+      ),
+    );
+    return {
+      ...rest,
+      imports,
+      ...(fieldNullability ? { fieldNullability } : {}),
+    };
+  }
+
+  const parameters = mergeParameterNullabilities(member, members);
+  if (!('returnType' in member)) {
+    return {
+      ...member,
+      imports,
+      parameters,
+    };
+  }
+
+  const { returnNullability: _returnNullability, ...rest } = member;
+  const returnNullability = mergeNullabilities(
+    members.map((candidate) =>
+      candidate.kind === 'method' ? candidate.returnNullability : undefined,
+    ),
+  );
+  return {
+    ...rest,
+    imports,
+    ...(returnNullability ? { returnNullability } : {}),
+    parameters,
+  };
+};
+
+const formatMemberIdentityKey = (
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+): string => {
+  const identityImports = getMemberIdentityImports(member, sourceImports);
   if ('parameters' in member) {
     const parameters = member.parameters
       .map((parameter) => parameter.type)
       .join(',');
     return `${member.kind}:${member.name}(${parameters}):${
       'returnType' in member ? member.returnType : member.name
-    }:${member.imports.join(',')}`;
+    }:${identityImports.join(',')}`;
   }
   return `${member.kind}:${member.name}:${member.type}:${
     member.isStatic ? 'static' : ''
-  }:${member.imports.join(',')}`;
+  }:${identityImports.join(',')}`;
 };
 
 const cloneParameters = (
@@ -266,13 +387,14 @@ const getMemberSortWeight = (member: AndroidApiMemberResult) => {
 const compareDeclarations = (
   a: AndroidApiCodeDeclaration,
   b: AndroidApiCodeDeclaration,
+  sourceImports: string[],
 ) => {
   return (
     a.requiresApi.apiVersion - b.requiresApi.apiVersion ||
     getMemberSortWeight(a.member) - getMemberSortWeight(b.member) ||
     a.member.name.localeCompare(b.member.name) ||
-    formatMemberIdentityKey(a.member).localeCompare(
-      formatMemberIdentityKey(b.member),
+    formatMemberIdentityKey(a.member, sourceImports).localeCompare(
+      formatMemberIdentityKey(b.member, sourceImports),
     )
   );
 };
@@ -319,9 +441,10 @@ const getApiVersionsInRange = (range: AndroidApiVersionRange) => {
 const completeDeclaration = (
   declarations: AndroidApiCodeDeclaration[],
   state: CodeDeclarationState,
+  sourceImports: string[],
 ) => {
   declarations.push({
-    member: state.member,
+    member: mergeMemberNullabilities(state.members, sourceImports),
     signature: state.signature,
     requiresApi: state.requiresApi,
     ...(state.deprecatedSinceApi
@@ -334,6 +457,7 @@ const completeDeclaration = (
 
 const collectDeclarations = (
   overloads: AndroidApiOverloadResult[],
+  sourceImports: string[],
 ): AndroidApiCodeDeclaration[] => {
   const declarations: AndroidApiCodeDeclaration[] = [];
 
@@ -346,26 +470,28 @@ const collectDeclarations = (
       | undefined;
     for (const range of overload.ranges) {
       const member = range.member;
-      const key = member ? formatMemberIdentityKey(member) : undefined;
+      const key = member
+        ? formatMemberIdentityKey(member, sourceImports)
+        : undefined;
       if (active && active.key !== key) {
         const missingVersion = toStartVersionInfo(range);
         if (missingVersion.apiVersion > active.state.requiresApi.apiVersion) {
           active.state.deprecatedSinceApi = missingVersion;
         }
-        completeDeclaration(declarations, active.state);
+        completeDeclaration(declarations, active.state, sourceImports);
         active = undefined;
       }
 
       if (!member || !key) continue;
       if (active) {
         active.state.toTag = range.toTag;
-        active.state.member = member;
+        active.state.members.push(member);
         continue;
       }
       active = {
         key,
         state: {
-          member,
+          members: [member],
           signature: member.type,
           requiresApi: toStartVersionInfo(range),
           fromTag: range.fromTag,
@@ -373,10 +499,10 @@ const collectDeclarations = (
         },
       };
     }
-    if (active) completeDeclaration(declarations, active.state);
+    if (active) completeDeclaration(declarations, active.state, sourceImports);
   }
 
-  return declarations.sort(compareDeclarations);
+  return declarations.sort((a, b) => compareDeclarations(a, b, sourceImports));
 };
 
 const getDeclarationEndApiVersion = (
@@ -399,10 +525,13 @@ const hasCrossedLifecycle = (
   );
 };
 
-const hasComplexLifecycle = (declarations: AndroidApiCodeDeclaration[]) => {
+const hasComplexLifecycle = (
+  declarations: AndroidApiCodeDeclaration[],
+  sourceImports: string[],
+) => {
   const seen = new Set<string>();
   for (const declaration of declarations) {
-    const key = formatMemberIdentityKey(declaration.member);
+    const key = formatMemberIdentityKey(declaration.member, sourceImports);
     if (seen.has(key)) return true;
     seen.add(key);
   }
@@ -418,19 +547,25 @@ const hasComplexLifecycle = (declarations: AndroidApiCodeDeclaration[]) => {
 
 const mergeDeclarationsByIdentity = (
   declarations: AndroidApiCodeDeclaration[],
+  sourceImports: string[],
 ) => {
   const map = new Map<string, AndroidApiCodeDeclaration>();
   for (const declaration of declarations) {
-    const key = formatMemberIdentityKey(declaration.member);
+    const key = formatMemberIdentityKey(declaration.member, sourceImports);
     const existing = map.get(key);
     if (existing) {
-      existing.member = declaration.member;
+      existing.member = mergeMemberNullabilities(
+        [existing.member, declaration.member],
+        sourceImports,
+      );
       existing.toTag = declaration.toTag;
       continue;
     }
     map.set(key, { ...declaration });
   }
-  return Array.from(map.values()).sort(compareDeclarations);
+  return Array.from(map.values()).sort((a, b) =>
+    compareDeclarations(a, b, sourceImports),
+  );
 };
 
 const getJavaMethodSignatureKey = (
@@ -467,6 +602,7 @@ const getRemappedMethodName = (
 
 const applyRemapMethodNames = (
   declarations: AndroidApiCodeDeclaration[],
+  sourceImports: string[],
 ): AndroidApiCodeDeclaration[] => {
   const groups = new Map<string, AndroidApiCodeDeclaration[]>();
   for (const declaration of declarations) {
@@ -480,7 +616,9 @@ const applyRemapMethodNames = (
   const remappedDeclarations = new Set<AndroidApiCodeDeclaration>();
   for (const group of groups.values()) {
     if (group.length <= 1) continue;
-    const sortedGroup = [...group].sort(compareDeclarations);
+    const sortedGroup = [...group].sort((a, b) =>
+      compareDeclarations(a, b, sourceImports),
+    );
     for (const declaration of sortedGroup.slice(0, -1)) {
       remappedDeclarations.add(declaration);
     }
@@ -596,6 +734,7 @@ const findBoundaryRangeIndex = (
 const collectSignatureSummaries = (
   overloads: AndroidApiOverloadResult[],
   checkedRanges: AndroidApiVersionRangeResult[],
+  sourceImports: string[],
 ) => {
   const summaries = new Map<string, CodeSignatureSummary>();
   const { firstIndexes, lastIndexes } = getApiRangeIndexes(checkedRanges);
@@ -612,7 +751,7 @@ const collectSignatureSummaries = (
     for (const range of overload.ranges) {
       const member = range.member;
       if (!member) continue;
-      const key = formatMemberIdentityKey(member);
+      const key = formatMemberIdentityKey(member, sourceImports);
       let summary = summaries.get(key);
       if (!summary) {
         summary = {
@@ -932,15 +1071,21 @@ const formatMemberDeclaration = (
   );
 };
 
-const getDeclarationIdentityKey = (declaration: AndroidApiCodeDeclaration) => {
+const getDeclarationIdentityKey = (
+  declaration: AndroidApiCodeDeclaration,
+  sourceImports: string[],
+) => {
   const member = declaration.member;
   if (member.kind === 'method' && declaration.remapMethodName) {
-    return formatMemberIdentityKey({
-      ...member,
-      name: declaration.remapMethodName,
-    });
+    return formatMemberIdentityKey(
+      {
+        ...member,
+        name: declaration.remapMethodName,
+      },
+      sourceImports,
+    );
   }
-  return formatMemberIdentityKey(member);
+  return formatMemberIdentityKey(member, sourceImports);
 };
 
 const formatAnnotatedDeclaration = (
@@ -954,7 +1099,7 @@ const formatAnnotatedDeclaration = (
 ) => {
   const lines: string[] = [];
   const signatureSummary = signatureSummaries.get(
-    getDeclarationIdentityKey(declaration),
+    getDeclarationIdentityKey(declaration, sourceImports),
   );
   const useLifecycleAnnotations =
     supportsLifecycleAnnotations(signatureSummaries);
@@ -1127,14 +1272,9 @@ const needsRequiresApiAnnotation = (
 };
 
 const collectMemberTypeNames = (member: AndroidApiMemberResult): string[] => {
-  const typeTexts =
-    'parameters' in member
-      ? [
-          ...member.parameters.map((parameter) => parameter.type),
-          'returnType' in member ? member.returnType : member.name,
-        ]
-      : [member.type];
-  return typeTexts.flatMap((type) => type.match(/[A-Za-z_$][\w$]*/g) ?? []);
+  return getMemberTypeTexts(member).flatMap(
+    (type) => type.match(/[A-Za-z_$][\w$]*/g) ?? [],
+  );
 };
 
 const getMemberTypeNullabilities = (
@@ -1435,17 +1575,22 @@ export const renderAndroidApiCodeWithMemberCode = (
 ): AndroidApiCodeResult & { memberCode: string } => {
   const ranges = result.ranges;
   const baselineApiVersion = ranges[0]?.fromApiVersion;
-  const lifecycleDeclarations = collectDeclarations(result.overloads);
+  const lifecycleDeclarations = collectDeclarations(
+    result.overloads,
+    result.imports,
+  );
   const hasComplexDeclarationLifecycle = hasComplexLifecycle(
     lifecycleDeclarations,
+    result.imports,
   );
   const codeDeclarations = hasComplexDeclarationLifecycle
-    ? mergeDeclarationsByIdentity(lifecycleDeclarations)
+    ? mergeDeclarationsByIdentity(lifecycleDeclarations, result.imports)
     : lifecycleDeclarations;
-  const declarations = applyRemapMethodNames(codeDeclarations);
+  const declarations = applyRemapMethodNames(codeDeclarations, result.imports);
   const signatureSummaries = collectSignatureSummaries(
     result.overloads,
     result.ranges,
+    result.imports,
   );
   const renderedCode = renderCode(
     result,
