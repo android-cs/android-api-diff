@@ -262,6 +262,51 @@ const baseResult = (
 }
 
 {
+  const staticField: AndroidApiMemberResult = {
+    kind: 'field',
+    name: 'STATE',
+    type: 'int',
+    imports: [],
+    isStatic: true,
+  };
+  const result = renderAndroidApiCodeWithMemberCode(
+    baseResult(
+      'IBinder.SHELL_COMMAND_TRANSACTION',
+      'core/java/android/os/IBinder.java',
+      ['IBinder', 'SHELL_COMMAND_TRANSACTION'],
+      [
+        range('8', 'O', 26, 'android-8.0.0_r1', [
+          constant('int', 'SHELL_COMMAND_TRANSACTION'),
+          staticField,
+        ]),
+      ],
+      [{ name: 'IBinder', kind: 'interface', isHidden: false }],
+    ),
+  );
+
+  assert.match(result.code, /import li\.songe\.remap\.RemapStub;/);
+  assert.match(result.code, /import li\.songe\.remap\.RemapType;/);
+  assert.match(
+    result.code,
+    /@RemapType\(IBinder\.class\)\npublic interface IBinderHidden \{/,
+  );
+  assert.match(
+    result.code,
+    /\n    int SHELL_COMMAND_TRANSACTION = RemapStub\.value\(\);\n/,
+  );
+  assert.match(result.code, /\n    int STATE = RemapStub\.value\(\);\n/);
+  assert.doesNotMatch(result.code, /\b(?:static|final)\s+int\b/);
+  assert.equal(
+    result.memberCode,
+    [
+      '    int SHELL_COMMAND_TRANSACTION = RemapStub.value();',
+      '',
+      '    int STATE = RemapStub.value();',
+    ].join('\n'),
+  );
+}
+
+{
   const result = renderAndroidApiCode(
     baseResult(
       'UserInfo.name',

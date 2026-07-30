@@ -867,21 +867,25 @@ const formatFieldDeclaration = (
   sourceImports: string[],
   conflictingNames: Set<string>,
 ) => {
-  const prefix =
-    member.kind === 'constant' || member.isStatic
-      ? inInterface
-        ? 'static '
-        : 'public static '
-      : inInterface
-        ? ''
-        : 'public ';
+  const prefix = inInterface
+    ? ''
+    : member.kind === 'constant' || member.isStatic
+      ? 'public static '
+      : 'public ';
+  const initializer = inInterface
+    ? ` = ${getGeneratedName(
+        'RemapStub',
+        'li.songe.remap.RemapStub',
+        conflictingNames,
+      )}.value()`
+    : '';
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.type,
     member.fieldNullability,
     member,
     sourceImports,
     conflictingNames,
-  )} ${member.name};`;
+  )} ${member.name}${initializer};`;
 };
 
 const formatMemberDeclaration = (
@@ -1197,6 +1201,7 @@ const collectImports = (
   packageName: string,
   aidlSource: boolean,
   aidlInterface: boolean,
+  inInterface: boolean,
   actualClassPath: string[],
   displayClassPath: string[],
   baselineApiVersion: number | undefined,
@@ -1213,6 +1218,14 @@ const collectImports = (
   }
   if (hasRemappedClass(actualClassPath, displayClassPath)) {
     addImport(imports, packageName, 'li.songe.remap.RemapType');
+  }
+  if (
+    inInterface &&
+    declarations.some(
+      ({ member }) => member.kind === 'field' || member.kind === 'constant',
+    )
+  ) {
+    addImport(imports, packageName, 'li.songe.remap.RemapStub');
   }
   if (declarations.some((declaration) => declaration.remapMethodName)) {
     addImport(imports, packageName, 'li.songe.remap.RemapMethod');
@@ -1366,6 +1379,7 @@ const renderCode = (
     packageName,
     !!result.source?.path.endsWith('.aidl'),
     includeAidlStub,
+    inInterface,
     actualClassPath,
     displayClassPath,
     baselineApiVersion,
