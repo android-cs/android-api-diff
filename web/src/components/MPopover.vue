@@ -24,10 +24,12 @@ const props = withDefaults(
   defineProps<{
     placement?: PopoverPlacement;
     offset?: number;
+    matchTriggerWidth?: boolean;
   }>(),
   {
     placement: 'bottom-end',
     offset: 6,
+    matchTriggerWidth: false,
   },
 );
 
@@ -82,6 +84,9 @@ const popoverStyle = computed<StyleMap>(() => {
 
   const padding = 4;
   return {
+    width: props.matchTriggerWidth
+      ? `${triggerBounds.width.value}px`
+      : undefined,
     top: `${clamp(
       top,
       padding,

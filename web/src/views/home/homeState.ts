@@ -29,6 +29,7 @@ import { useRoute, useRouter } from 'vue-router';
 export const ANDROID_PREFIX_LEN = 'android-'.length;
 
 export const NOT_FOUND_TYPE_COLOR = '#00000080';
+const MISSING_TARGET_TYPE_COLOR = '#000';
 
 const SKIP_NEXT_AUTO_DIFF_STATE_KEY = '__androidApiDiffSkipNextAutoDiff';
 const DIFF_CONCURRENT_COUNT_STORAGE_KEY =
@@ -288,10 +289,10 @@ export const useSharedHomeState = createSharedComposable(() => {
   });
 
   const colorCache = new Map<string, string>();
-  const selectedColorCache = new Map<string, string>();
+  const selectedColorCaches = new Map<string, Map<string, string>>();
   watch(searchFromData, () => {
     colorCache.clear();
-    selectedColorCache.clear();
+    selectedColorCaches.clear();
     selectedOverloadKey.value = null;
   });
   const getCachedColor = (cache: Map<string, string>, key: string) => {
@@ -304,8 +305,16 @@ export const useSharedHomeState = createSharedComposable(() => {
     return color;
   };
   const getCachedTypeColor = (key: string) => getCachedColor(colorCache, key);
-  const getCachedSelectedTypeColor = (key: string) =>
-    getCachedColor(selectedColorCache, key);
+  const getCachedSelectedTypeColor = (key: string) => {
+    const selected = selectedOverloadKey.value;
+    if (!selected) return '';
+    let cache = selectedColorCaches.get(selected);
+    if (!cache) {
+      cache = new Map();
+      selectedColorCaches.set(selected, cache);
+    }
+    return getCachedColor(cache, key);
+  };
 
   const diffResultList = computed<DiffResultItem[]>(() => {
     const builder = urlBuilder.value;
@@ -327,7 +336,9 @@ export const useSharedHomeState = createSharedComposable(() => {
         const structs = file.structs;
         let typeDesc = '';
         const notFound = notFoundFileMap[filePath];
-        let typeColor = notFound ? NOT_FOUND_TYPE_COLOR : '#000';
+        let typeColor = notFound
+          ? NOT_FOUND_TYPE_COLOR
+          : MISSING_TARGET_TYPE_COLOR;
         let target: DiffResultItem['target'];
         let members: DiffResultItem['members'] | undefined;
 
@@ -414,18 +425,16 @@ export const useSharedHomeState = createSharedComposable(() => {
         (candidate) => getAndroidApiOverloadId(candidate) === selected,
       );
       const signatureNotFound = !result.notFound && !!result.target && !member;
-      const typeDesc = member
-        ? formatMemberType(member)
-        : signatureNotFound
-          ? 'Signature not found'
-          : '';
+      const typeDesc = member ? formatMemberType(member) : '';
       return {
         ...result,
         members: member ? [member] : [],
         typeDesc,
         typeColor: member
           ? getCachedSelectedTypeColor(typeDesc)
-          : NOT_FOUND_TYPE_COLOR,
+          : signatureNotFound
+            ? MISSING_TARGET_TYPE_COLOR
+            : result.typeColor,
       };
     });
   });

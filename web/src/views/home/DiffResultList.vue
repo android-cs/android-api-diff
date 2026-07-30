@@ -95,10 +95,8 @@ const copyMemberCode = async () => {
           v-if="overloadOptions.length > 1"
           v-model="selectedOverloadValue"
           class="overload-select"
-          label="Overload"
+          match-popover-width
           trigger-min-width="0"
-          popover-min-width="320px"
-          self-start
         >
           <template #value>
             <span
@@ -210,7 +208,7 @@ const copyMemberCode = async () => {
 
 <style scoped>
 .overload-select {
-  width: min(100%, 640px);
+  width: 100%;
 }
 
 .overload-select :deep([role='button']) {
@@ -223,7 +221,8 @@ const copyMemberCode = async () => {
 }
 
 .overload-option-label {
-  max-width: min(680px, calc(100vw - 64px));
+  min-width: 0;
+  flex: 1;
   overflow-wrap: anywhere;
 }
 </style>

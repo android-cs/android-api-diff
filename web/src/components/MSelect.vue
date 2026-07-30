@@ -21,6 +21,7 @@ const props = withDefaults(
     offset?: number;
     triggerMinWidth?: string;
     popoverMinWidth?: string;
+    matchPopoverWidth?: boolean;
   }>(),
   {
     label: '',
@@ -28,6 +29,7 @@ const props = withDefaults(
     offset: 6,
     triggerMinWidth: 'auto',
     popoverMinWidth: 'auto',
+    matchPopoverWidth: false,
   },
 );
 
@@ -58,6 +60,7 @@ provide(M_SELECT_CONTEXT_KEY, {
       ref="popoverRef"
       :placement="placement"
       :offset="offset"
+      :match-trigger-width="matchPopoverWidth"
       class="overflow-hidden"
     >
       <template #trigger="{ open, toggle, linkPopover }">
