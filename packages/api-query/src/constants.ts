@@ -84,4 +84,4 @@ export const manualTagMirrors = [
 ] as const;
 
 export const aidlJavaFileListUrl =
-  'https://raw.githubusercontent.com/android-cs/17/refs/tags/r1/aidl_java_files.txt';
+  'https://raw.githubusercontent.com/android-cs/file/refs/heads/main/aidl_java_files.txt';

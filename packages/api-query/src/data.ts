@@ -65,7 +65,7 @@ export const loadAidlJavaFiles = async (
   if (runtimeFiles) return runtimeFiles;
   const text = await fetchCachedText(
     runtime,
-    'file-list:aidl-java-files:v1',
+    'file-list:aidl-java-files:v2',
     aidlJavaFileListUrl,
     signal,
   );
