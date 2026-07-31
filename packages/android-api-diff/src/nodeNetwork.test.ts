@@ -8,7 +8,7 @@ import type {
 import { createFetchTextWithRetry, toTextEtagTag } from './nodeNetwork.ts';
 
 const rawUrl = (tag: string): string =>
-  `https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/${tag}/core/java/android/app/IExample.aidl`;
+  `https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/${tag}/core/java/android/app/IExample.aidl`;
 
 const androidCsUrl = (versionMajor: number, revision: number): string =>
   `https://raw.githubusercontent.com/android-cs/${versionMajor}/refs/tags/r${revision}/core/java/android/app/IExample.aidl`;

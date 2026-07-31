@@ -9,7 +9,7 @@ const NETWORK_RETRY_COUNT = 3;
 const NETWORK_RETRY_BASE_DELAY_MS = 300;
 const RAW_GITHUB_HOST = 'raw.githubusercontent.com';
 const AOSP_RAW_FRAMEWORK_PATH_REG =
-  /^\/aosp-mirror\/platform_frameworks_base\/android-(\d+)\.(\d+)\.(\d+)_r(\d+)\/(.+)$/;
+  /^\/msft-mirror-aosp\/platform\.frameworks\.base\/refs\/tags\/android-(\d+)\.(\d+)\.(\d+)_r(\d+)\/(.+)$/;
 const ANDROID_CS_RAW_FRAMEWORK_PATH_REG =
   /^\/android-cs\/(\d+)\/refs\/tags\/r(\d+)\/(.+)$/;
 const ETAG_RESOURCE_VERSION = 1;

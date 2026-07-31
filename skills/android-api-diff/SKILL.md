@@ -1,6 +1,6 @@
 ---
 name: android-api-diff
-description: Inspect Android framework Java and AIDL APIs across versions with the android-api-diff CLI. Use when resolving an Android API to frameworks/base source, comparing signatures or availability by Android version, explaining missing APIs, generating Java hidden-API access code, or explicitly prewarming the local query cache.
+description: Inspect Android framework Java and AIDL APIs across versions with the android-api-diff CLI. Use when resolving an Android API to frameworks/base source, fetching the complete content of a tagged source file, comparing signatures or availability by Android version, explaining missing APIs, generating Java hidden-API access code, or explicitly prewarming the local query cache.
 ---
 
 # Android API Diff
@@ -16,6 +16,9 @@ output so results remain machine-readable.
   missing reasons, or source metadata.
 - Run `resolve` when the user only needs the matching `frameworks/base` file and
   target kind.
+- Run `source` when the user wants the complete content of a known source path
+  at an exact Android release tag. If only an API name is known, run `resolve`
+  first and use its `source.path`.
 - Run `preload` only when the user explicitly asks to preload several APIs.
 
 Always quote API names because constructors and member references can contain
@@ -23,6 +26,7 @@ shell-sensitive characters.
 
 ```sh
 android-api-diff resolve "ContentObserver()"
+android-api-diff source android-17.0.0_r1 core/java/android/accessibilityservice/AccessibilityButtonController.java
 android-api-diff query "IActivityManager.getTasks" --min-sdk 28
 android-api-diff generate "ActivityThread.currentApplication" --min-sdk 28
 android-api-diff preload "ContentObserver()" "IActivityManager.getTasks" --min-sdk 28

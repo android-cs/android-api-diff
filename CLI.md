@@ -62,6 +62,7 @@ again in each project that should receive the new Skill instructions.
 
 ```sh
 android-api-diff resolve "ContentObserver()"
+android-api-diff source android-17.0.0_r1 core/java/android/accessibilityservice/AccessibilityButtonController.java
 android-api-diff query "IActivityManager.getTasks" --min-sdk 28
 android-api-diff generate "ActivityThread.currentApplication" --min-sdk 28
 android-api-diff preload "ContentObserver()" "IActivityManager.getTasks" --min-sdk 28
@@ -70,6 +71,7 @@ android-api-diff preload "ContentObserver()" "IActivityManager.getTasks" --min-s
 | Command         | Use it for                                                                                   |
 | --------------- | -------------------------------------------------------------------------------------------- |
 | `resolve`       | Resolve an API name to its source file and target kind without fetching historical versions. |
+| `source`        | Fetch one tagged source file through the local ETag and content cache.                       |
 | `query`         | Inspect exact signatures, tag ranges, missing reasons, and source metadata across versions.  |
 | `generate`      | Generate Java hidden-API code. This command performs the cross-version query itself.         |
 | `preload`       | Preload query results for one or more APIs before a larger task.                             |
@@ -106,6 +108,15 @@ does not.
 
 Range endpoints describe the first or last Android tag checked in the current
 query snapshot. `last-checked` does not mean that the tag is permanently final.
+
+The `source` command accepts an Android release tag and a path relative to
+`frameworks/base`. Its JSON result includes the normalized path, raw GitHub
+download URL, and complete file content. A missing file returns
+`SOURCE_NOT_FOUND` instead of successful content:
+
+```sh
+android-api-diff source android-17.0.0_r1 core/java/android/accessibilityservice/AccessibilityButtonController.java
+```
 
 ## Advanced installation
 

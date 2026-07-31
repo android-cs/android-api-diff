@@ -100,6 +100,33 @@ test('parses public commands and options', () => {
   );
   assert.deepEqual(
     parseCliArgs([
+      'source',
+      'android-17.0.0_r1',
+      'frameworks/base/core/java/android/app/ActivityThread.java',
+    ]),
+    {
+      command: 'source',
+      tag: 'android-17.0.0_r1',
+      filePath: 'core/java/android/app/ActivityThread.java',
+      format: 'json',
+    },
+  );
+  assert.throws(
+    () =>
+      parseCliArgs([
+        'source',
+        '17',
+        'core/java/android/app/ActivityThread.java',
+      ]),
+    /source tag must match/,
+  );
+  assert.throws(
+    () =>
+      parseCliArgs(['source', 'android-17.0.0_r1', '../ActivityThread.java']),
+    /must stay within frameworks\/base/,
+  );
+  assert.deepEqual(
+    parseCliArgs([
       'preload',
       'ContentObserver()',
       'ActivityThread.currentApplication',
@@ -597,6 +624,120 @@ test('writes successful JSON only to stdout', async () => {
   });
 });
 
+test('source fetches a raw framework file through the runtime', async () => {
+  const output = createOutput();
+  const content = 'package android.accessibilityservice;\n';
+  const taggedFilePath =
+    'android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
+  const url =
+    'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
+  let cachedValue: string | undefined;
+  const exitCode = await runCli(
+    [
+      'source',
+      'android-17.0.0_r1',
+      'core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    ],
+    {
+      io: output.io,
+      runtime: {
+        async fetchText(actualUrl) {
+          assert.equal(actualUrl, url);
+          return content;
+        },
+        textCache: {
+          async get(key) {
+            assert.equal(key, taggedFilePath);
+            return;
+          },
+          async set(key, value) {
+            assert.equal(key, taggedFilePath);
+            cachedValue = value;
+          },
+        },
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.equal(cachedValue, content);
+  assert.equal(output.stderr, '');
+  assert.deepEqual(JSON.parse(output.stdout), {
+    ok: true,
+    command: 'source',
+    result: {
+      tag: 'android-17.0.0_r1',
+      path: 'core/java/android/accessibilityservice/AccessibilityButtonController.java',
+      url,
+      content,
+    },
+  });
+});
+
+test('source returns shared text-cache content without fetching', async () => {
+  const output = createOutput();
+  const content = 'package android.app;\n';
+  const taggedFilePath =
+    'android-17.0.0_r1/core/java/android/app/ActivityThread.java';
+  let cacheWrites = 0;
+  const exitCode = await runCli(
+    [
+      'source',
+      'android-17.0.0_r1',
+      'core/java/android/app/ActivityThread.java',
+    ],
+    {
+      io: output.io,
+      runtime: {
+        async fetchText() {
+          throw new Error('unexpected fetch');
+        },
+        textCache: {
+          async get(key) {
+            assert.equal(key, taggedFilePath);
+            return content;
+          },
+          async set(key, value) {
+            assert.equal(key, taggedFilePath);
+            assert.equal(value, content);
+            cacheWrites++;
+          },
+        },
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.equal(cacheWrites, 0);
+  assert.equal(JSON.parse(output.stdout).result.content, content);
+});
+
+test('source reports a missing file as a structured error', async () => {
+  const output = createOutput();
+  const exitCode = await runCli(
+    ['source', 'android-17.0.0_r1', 'core/java/android/app/Missing.java'],
+    {
+      io: output.io,
+      runtime: {
+        async fetchText() {
+          return '404: Not Found';
+        },
+      },
+    },
+  );
+
+  assert.equal(exitCode, 1);
+  assert.equal(output.stdout, '');
+  assert.deepEqual(JSON.parse(output.stderr), {
+    ok: false,
+    error: {
+      code: 'SOURCE_NOT_FOUND',
+      message:
+        'Source file not found: android-17.0.0_r1/core/java/android/app/Missing.java',
+    },
+  });
+});
+
 test('resolve keeps an unresolved result explicit and machine-readable', async () => {
   const output = createOutput();
   const exitCode = await runCli(['resolve', 'DefinitelyMissingApi'], {
@@ -661,7 +802,22 @@ test('entrypoint help and version have clean process behavior', () => {
   });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^android-api-diff/);
+  assert.match(help.stdout, /android-api-diff source <tag> <file-path>/);
   assert.equal(help.stderr, '');
+
+  const sourceHelp = spawnSync(
+    process.execPath,
+    [entrypoint, 'source', '--help'],
+    {
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(sourceHelp.status, 0);
+  assert.match(
+    sourceHelp.stdout,
+    /^Usage: android-api-diff source <tag> <file-path>/,
+  );
+  assert.equal(sourceHelp.stderr, '');
 
   const version = spawnSync(process.execPath, [entrypoint, '--version'], {
     encoding: 'utf8',

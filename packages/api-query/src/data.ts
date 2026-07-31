@@ -6,7 +6,7 @@ import {
 import type { AndroidApiQueryRuntime, AndroidVersionItem } from './types.ts';
 
 const gitHubTagsUrl =
-  'https://github.com/aosp-mirror/platform_frameworks_base.git/info/refs?service=git-upload-pack';
+  'https://github.com/msft-mirror-aosp/platform.frameworks.base.git/info/refs?service=git-upload-pack';
 const googleSourceTagsUrl =
   'https://android.googlesource.com/platform/frameworks/base/+refs/tags/?format=JSON';
 const gitHubTagRefReg = /refs\/tags\/(android-\d+\.\d+\.\d+_r\d+)/g;
@@ -97,7 +97,7 @@ export const loadAndroidVersionList = async (
     ),
     fetchCachedText(
       runtime,
-      'tag-list:github:aosp-mirror-frameworks-base:git-upload-pack:v1',
+      'tag-list:github:msft-mirror-aosp-frameworks-base:git-upload-pack:v1',
       gitHubTagsUrl,
       signal,
     ),

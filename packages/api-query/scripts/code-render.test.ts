@@ -127,6 +127,7 @@ const baseResult = (
     source: {
       repo: 'platform/frameworks/base',
       path: sourcePath,
+      url: `https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/:tag/${sourcePath}`,
     },
     resolvedTarget: {
       kind: 'member',

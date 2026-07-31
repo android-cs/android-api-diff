@@ -10,6 +10,7 @@ import type {
 } from '@android-cs/api-query';
 import {
   findStructPathByPath,
+  getMirrorSourceUrl,
   toAndroidApiResolvedType,
 } from '@android-cs/api-query';
 import {
@@ -180,6 +181,7 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
     source: {
       repo: 'platform/frameworks/base',
       path: searchFromData.value.filePath,
+      url: getMirrorSourceUrl(`:tag/${searchFromData.value.filePath}`),
     },
     resolvedTarget: {
       kind: searchFromData.value.targetKind,

@@ -2,6 +2,7 @@
 import { persistentFetch } from '@/utils/cache';
 import androidVersionList from '@/utils/android.data';
 import {
+  getMirrorContentUrl,
   loadAidlJavaFiles,
   searchFilePathByRefName,
   toAndroidApiResolution,
@@ -12,7 +13,7 @@ import { generateAndroidApiCode } from '@android-cs/api-query/code';
 import { queryAndroidApi } from '@android-cs/api-query/query';
 import { computed, ref } from 'vue';
 
-type CommandName = 'resolve' | 'query' | 'generate' | 'preload';
+type CommandName = 'resolve' | 'source' | 'query' | 'generate' | 'preload';
 
 interface CommandOption {
   name: CommandName;
@@ -34,6 +35,11 @@ const commands: CommandOption[] = [
       'Inspect cross-version ranges, signatures, and source coordinates.',
   },
   {
+    name: 'source',
+    label: 'Source',
+    description: 'Fetch one tagged source file through the local CLI cache.',
+  },
+  {
     name: 'generate',
     label: 'Generate',
     description: 'Generate Java hidden-API code with one command.',
@@ -49,6 +55,10 @@ const activeCommandName = ref<CommandName>('query');
 const apiName = ref('IActivityManager.getTasks');
 const apiNamesText = ref(
   ['IActivityManager.getTasks', 'ActivityThread.currentApplication'].join('\n'),
+);
+const sourceTag = ref('android-17.0.0_r1');
+const sourcePath = ref(
+  'core/java/android/accessibilityservice/AccessibilityButtonController.java',
 );
 const minSdk = ref<string | number>('35');
 const loading = ref(false);
@@ -109,6 +119,9 @@ const commandText = computed(() => {
   if (activeCommandName.value === 'resolve') {
     return `android-api-diff resolve ${quoteArgument(apiName.value)}`;
   }
+  if (activeCommandName.value === 'source') {
+    return `android-api-diff source ${quoteArgument(sourceTag.value)} ${quoteArgument(sourcePath.value)}`;
+  }
   if (activeCommandName.value === 'preload') {
     const names = getPreloadApiNames().map(quoteArgument).join(' ');
     return `android-api-diff preload ${names}${minSdkArgument.value}`;
@@ -144,6 +157,25 @@ const runGeneratePreview = async () => {
   return generateAndroidApiCode(browserRuntime, getQueryOptions());
 };
 
+const runSourcePreview = async () => {
+  const tag = sourceTag.value.trim();
+  const path = sourcePath.value
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^\/?(?:frameworks\/base\/)?/, '');
+  const url = getMirrorContentUrl(`${tag}/${path}`);
+  const content = await browserRuntime.fetchText(url);
+  if (content.startsWith('404:')) {
+    throw new Error(`Source file not found: ${tag}/${path}`);
+  }
+  return {
+    tag,
+    path,
+    url,
+    content,
+  };
+};
+
 const runPreloadPreview = async () => {
   const results = [];
   for (const name of getPreloadApiNames()) {
@@ -169,11 +201,13 @@ const runActiveCommand = async () => {
     const result =
       activeCommandName.value === 'resolve'
         ? await runResolvePreview()
-        : activeCommandName.value === 'generate'
-          ? await runGeneratePreview()
-          : activeCommandName.value === 'query'
-            ? await runQueryPreview()
-            : await runPreloadPreview();
+        : activeCommandName.value === 'source'
+          ? await runSourcePreview()
+          : activeCommandName.value === 'generate'
+            ? await runGeneratePreview()
+            : activeCommandName.value === 'query'
+              ? await runQueryPreview()
+              : await runPreloadPreview();
     const response = {
       ok: true,
       command: activeCommandName.value,
@@ -366,8 +400,46 @@ const runActiveCommand = async () => {
             </p>
 
             <div grid grid-cols-1 md:grid-cols-2 gap-12px>
+              <template v-if="activeCommandName === 'source'">
+                <label flex flex-col gap-6px>
+                  <span text-12px uppercase tracking-1px text-gray-500>
+                    Android tag
+                  </span>
+                  <input
+                    v-model="sourceTag"
+                    type="text"
+                    b-1px
+                    b-solid
+                    b-gray-200
+                    rounded-4px
+                    px-8px
+                    py-6px
+                    outline-none
+                    focus="b-gray-500"
+                  />
+                </label>
+
+                <label flex flex-col gap-6px>
+                  <span text-12px uppercase tracking-1px text-gray-500>
+                    Source path
+                  </span>
+                  <input
+                    v-model="sourcePath"
+                    type="text"
+                    b-1px
+                    b-solid
+                    b-gray-200
+                    rounded-4px
+                    px-8px
+                    py-6px
+                    outline-none
+                    focus="b-gray-500"
+                  />
+                </label>
+              </template>
+
               <label
-                v-if="activeCommandName !== 'preload'"
+                v-else-if="activeCommandName !== 'preload'"
                 flex
                 flex-col
                 gap-6px
@@ -408,7 +480,10 @@ const runActiveCommand = async () => {
               </label>
 
               <label
-                v-if="activeCommandName !== 'resolve'"
+                v-if="
+                  activeCommandName !== 'resolve' &&
+                  activeCommandName !== 'source'
+                "
                 flex
                 flex-col
                 gap-6px

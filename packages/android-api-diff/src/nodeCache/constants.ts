@@ -42,6 +42,7 @@ const CACHE_CONNECTION_EPOCHS = {
   '2|br1|1|struct:v10:1|query:v21:1|1': 4,
   '2|br1|1|struct:v11:1|query:v22:1|1': 5,
   '2|br1|1|struct:v11:1|query:v23:1|1': 6,
+  '2|br1|1|struct:v11:1|query:v24:1|1': 7,
 } as const;
 
 export const CACHE_CONNECTION_EPOCH =

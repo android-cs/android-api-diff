@@ -12,7 +12,7 @@ const csBaseUrl = 'https://cs.android.com/';
 const csReg = /\/\+\/[^\/\:]+\:?(.*)$/g;
 
 const mirrorBaseUrl =
-  'https://github.com/aosp-mirror/platform_frameworks_base/';
+  'https://github.com/msft-mirror-aosp/platform.frameworks.base/';
 const mirrorRegs = [
   /\/blob\/[^\/]+(.*)$/g,
   /\/tree\/[^\/]+(.*)$/g,
@@ -20,13 +20,8 @@ const mirrorRegs = [
 ];
 
 export const mirrorContentBaseUrl =
-  'https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/';
-const mirrorContentRegs = [
-  /\/refs\/heads\/[^\/]+(.*)$/g,
-  /\/refs\/tags\/[^\/]+(.*)$/g,
-  /\/[0-9a-f]{40}(.*)$/g,
-  /\/aosp\-mirror\/platform_frameworks_base\/[^\/]+(.*)$/g,
-];
+  'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/';
+const mirrorContentRegs = [/\/refs\/tags\/[^\/]+(.*)$/g];
 
 export const sourceLinkTargetOptions = [
   'cs.android.com',
@@ -55,18 +50,7 @@ export const getMirrorContentUrl = (filePath: string): string => {
 };
 
 export const getMirrorSourceUrl = (filePath: string): string => {
-  const contentUrl = getMirrorContentUrl(filePath);
-  const path = contentUrl.substring(mirrorContentBaseUrl.indexOf('//') + 2);
-  const [host, owner, repository, ...refAndFilePath] = path.split('/');
-  if (
-    host !== 'raw.githubusercontent.com' ||
-    !owner ||
-    !repository ||
-    refAndFilePath.length === 0
-  ) {
-    return contentUrl;
-  }
-  return `https://github.com/${owner}/${repository}/blob/${refAndFilePath.join('/')}`;
+  return `${mirrorBaseUrl}blob/${filePath}`;
 };
 
 export const fixFilePath = (filePath: string): string => {

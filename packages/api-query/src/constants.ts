@@ -75,11 +75,11 @@ export const androidApiVersionList = androidVersionInfos.map(
 export const manualTagMirrors = [
   [
     'android-16.0.0_r4',
-    'https://raw.githubusercontent.com/android-cs/16/refs/tags/r4/',
+    'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-16.0.0_r4/',
   ],
   [
     'android-17.0.0_r1',
-    'https://raw.githubusercontent.com/android-cs/17/refs/tags/r1/',
+    'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-17.0.0_r1/',
   ],
 ] as const;
 

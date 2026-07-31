@@ -6,13 +6,21 @@ import {
   queryAndroidApi,
   STRUCT_CACHE_VERSION,
 } from '../src/query.ts';
-import { searchFilePathByRefName } from '../src/resolve.ts';
+import {
+  searchFilePathByRefName,
+  toAndroidApiResolution,
+} from '../src/resolve.ts';
 import { toAndroidApiResolvedType } from '../src/struct.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryRuntime,
   AndroidApiStructCacheEntry,
 } from '../src/types.ts';
+import {
+  getMirrorContentUrl,
+  getMirrorSourceUrl,
+  getVersionUrlBuilder,
+} from '../src/url.ts';
 
 const version13Tags = [
   'android-13.0.0_r16',
@@ -49,6 +57,48 @@ public interface IExample {
 `;
   },
 };
+
+{
+  const filePath =
+    'android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
+  const sourceUrl =
+    'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
+  const contentUrl =
+    'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
+
+  assert.equal(getMirrorSourceUrl(filePath), sourceUrl);
+  assert.equal(getMirrorContentUrl(filePath), contentUrl);
+  assert.deepEqual(getVersionUrlBuilder(sourceUrl), {
+    filePath:
+      '/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    templateUrl: [
+      'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/',
+      '/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    ],
+  });
+  assert.deepEqual(getVersionUrlBuilder(contentUrl), {
+    filePath:
+      '/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    templateUrl: [
+      'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/',
+      '/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    ],
+  });
+}
+
+{
+  const sourcePath =
+    'core/java/android/accessibilityservice/AccessibilityButtonController.java';
+  const resolution = toAndroidApiResolution(
+    searchFilePathByRefName('AccessibilityButtonController', [sourcePath]),
+  );
+
+  assert.deepEqual(resolution?.source, {
+    repo: 'platform/frameworks/base',
+    path: sourcePath,
+    url: 'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/:tag/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+  });
+}
 
 {
   const oldMember: AndroidApiMemberResult = {
@@ -288,6 +338,10 @@ const result = await queryAndroidApi(runtime, {
   },
 });
 
+assert.equal(
+  result.source?.url,
+  'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/:tag/core/java/android/app/IExample.java',
+);
 assert.equal(result.summary.checkedTags, 5);
 assert.equal(result.summary.overloadCount, 1);
 assert.equal(Object.hasOwn(result.summary, 'signatures'), false);
@@ -481,7 +535,7 @@ public interface IExample {
 
   assert.deepEqual(fetchedUrls, [
     'https://android.googlesource.com/platform/frameworks/base/+refs/tags/?format=JSON',
-    'https://github.com/aosp-mirror/platform_frameworks_base.git/info/refs?service=git-upload-pack',
+    'https://github.com/msft-mirror-aosp/platform.frameworks.base.git/info/refs?service=git-upload-pack',
   ]);
   assert.deepEqual(versionList, [
     {
