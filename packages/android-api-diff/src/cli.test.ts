@@ -125,6 +125,15 @@ test('parses public commands and options', () => {
       parseCliArgs(['source', 'android-17.0.0_r1', '../ActivityThread.java']),
     /must stay within frameworks\/base/,
   );
+  assert.throws(
+    () =>
+      parseCliArgs([
+        'source',
+        'android-17.0.0_r1',
+        '%2e%2e/%2e%2e/octocat/Hello-World/master/README',
+      ]),
+    /must stay within frameworks\/base/,
+  );
   assert.deepEqual(
     parseCliArgs([
       'preload',

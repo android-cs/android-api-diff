@@ -2,7 +2,7 @@
 import { persistentFetch } from '@/utils/cache';
 import androidVersionList from '@/utils/android.data';
 import {
-  getMirrorContentUrl,
+  loadAndroidSourceFile,
   loadAidlJavaFiles,
   searchFilePathByRefName,
   toAndroidApiResolution,
@@ -158,22 +158,11 @@ const runGeneratePreview = async () => {
 };
 
 const runSourcePreview = async () => {
-  const tag = sourceTag.value.trim();
-  const path = sourcePath.value
-    .trim()
-    .replaceAll('\\', '/')
-    .replace(/^\/?(?:frameworks\/base\/)?/, '');
-  const url = getMirrorContentUrl(`${tag}/${path}`);
-  const content = await browserRuntime.fetchText(url);
-  if (content.startsWith('404:')) {
-    throw new Error(`Source file not found: ${tag}/${path}`);
-  }
-  return {
-    tag,
-    path,
-    url,
-    content,
-  };
+  return loadAndroidSourceFile(
+    browserRuntime,
+    sourceTag.value,
+    sourcePath.value,
+  );
 };
 
 const runPreloadPreview = async () => {

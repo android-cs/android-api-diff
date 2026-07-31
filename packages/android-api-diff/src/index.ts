@@ -2,8 +2,11 @@
 import process from 'node:process';
 import { inspect, parseArgs } from 'node:util';
 import {
-  getMirrorContentUrl,
+  AndroidApiSourceFileNotFoundError,
+  loadAndroidSourceFile,
   loadAidlJavaFiles,
+  normalizeAndroidSourceFilePath,
+  normalizeAndroidSourceTag,
   searchFilePathByRefName,
   toAndroidApiResolution,
   type AndroidApiQueryProgress,
@@ -95,10 +98,6 @@ export interface RunCliOptions {
 
 class CliUsageError extends Error {
   readonly code = 'INVALID_ARGUMENT';
-}
-
-class SourceFileNotFoundError extends Error {
-  readonly code = 'SOURCE_NOT_FOUND';
 }
 
 const GENERAL_HELP = `android-api-diff
@@ -211,8 +210,8 @@ const requireApiName = (positionals: string[], expectedCount = 1): string => {
 };
 
 const parseSourceTag = (value: string | undefined): string => {
-  const tag = value?.trim();
-  if (!tag || !/^android-\d+\.\d+\.\d+_r\d+$/.test(tag)) {
+  const tag = value && normalizeAndroidSourceTag(value);
+  if (!tag) {
     return usageError(
       'source tag must match android-<major>.<minor>.<patch>_r<revision>',
     );
@@ -221,18 +220,10 @@ const parseSourceTag = (value: string | undefined): string => {
 };
 
 const parseSourceFilePath = (value: string | undefined): string => {
-  const valuePath = value?.trim().replaceAll('\\', '/');
-  if (!valuePath) return usageError('source requires a file path');
-  let filePath = valuePath;
-  filePath = filePath.replace(/^\/+/, '');
-  if (filePath.startsWith('frameworks/base/')) {
-    filePath = filePath.substring('frameworks/base/'.length);
-  }
-  const segments = filePath.split('/');
-  if (
-    segments.some((segment) => !segment || segment === '.' || segment === '..')
-  ) {
-    usageError('source file path must stay within frameworks/base');
+  if (!value?.trim()) return usageError('source requires a file path');
+  const filePath = normalizeAndroidSourceFilePath(value);
+  if (!filePath) {
+    return usageError('source file path must stay within frameworks/base');
   }
   return filePath;
 };
@@ -429,27 +420,15 @@ const executeRequest = async (
 
   if (request.command === 'source') {
     const taggedFilePath = `${request.tag}/${request.filePath}`;
-    const url = getMirrorContentUrl(taggedFilePath);
     progress.update(`${taggedFilePath}: checking source cache`);
-    let content = await runtime.textCache?.get(taggedFilePath);
-    if (content === undefined) {
-      content = await runtime.fetchText(url, signal);
-      if (!content.startsWith('404:')) {
-        await runtime.textCache?.set(taggedFilePath, content);
-      }
-    }
-    if (content.startsWith('404:')) {
-      throw new SourceFileNotFoundError(
-        `Source file not found: ${taggedFilePath}`,
-      );
-    }
+    const result = await loadAndroidSourceFile(
+      runtime,
+      request.tag,
+      request.filePath,
+      signal,
+    );
     progress.finish(`${taggedFilePath}: source ready`);
-    return {
-      tag: request.tag,
-      path: request.filePath,
-      url,
-      content,
-    };
+    return result;
   }
 
   if (request.command === 'query' || request.command === 'generate') {
@@ -531,7 +510,7 @@ const writeSuccess = (
 const getErrorCode = (error: unknown): string => {
   if (error instanceof CliUsageError) return error.code;
   if (error instanceof InstallCommandError) return error.code;
-  if (error instanceof SourceFileNotFoundError) return error.code;
+  if (error instanceof AndroidApiSourceFileNotFoundError) return error.code;
   const visited = new Set<unknown>();
   let current: unknown = error;
   while (current && typeof current === 'object' && !visited.has(current)) {

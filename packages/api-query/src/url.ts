@@ -13,6 +13,9 @@ const csReg = /\/\+\/[^\/\:]+\:?(.*)$/g;
 
 const mirrorBaseUrl =
   'https://github.com/msft-mirror-aosp/platform.frameworks.base/';
+const legacyMirrorBaseUrl =
+  'https://github.com/aosp-mirror/platform_frameworks_base/';
+const mirrorBaseUrls = [mirrorBaseUrl, legacyMirrorBaseUrl] as const;
 const mirrorRegs = [
   /\/blob\/[^\/]+(.*)$/g,
   /\/tree\/[^\/]+(.*)$/g,
@@ -21,7 +24,18 @@ const mirrorRegs = [
 
 export const mirrorContentBaseUrl =
   'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/';
-const mirrorContentRegs = [/\/refs\/tags\/[^\/]+(.*)$/g];
+const legacyMirrorContentBaseUrl =
+  'https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/';
+const mirrorContentBaseUrls = [
+  mirrorContentBaseUrl,
+  legacyMirrorContentBaseUrl,
+] as const;
+const mirrorContentRegs = [
+  /\/refs\/heads\/[^\/]+(.*)$/g,
+  /\/refs\/tags\/[^\/]+(.*)$/g,
+  /\/[0-9a-f]{40}(.*)$/g,
+  /\/aosp\-mirror\/platform_frameworks_base\/[^\/]+(.*)$/g,
+];
 
 export const sourceLinkTargetOptions = [
   'cs.android.com',
@@ -107,7 +121,10 @@ export const getVersionUrlBuilder = (
       filePath: actualFilePath,
       templateUrl: [baseUrl + `/+/`, filePath && ':' + filePath],
     };
-  } else if (url.startsWith(mirrorBaseUrl)) {
+  } else if (mirrorBaseUrls.some((baseUrl) => url.startsWith(baseUrl))) {
+    const matchedMirrorBaseUrl = mirrorBaseUrls.find((baseUrl) =>
+      url.startsWith(baseUrl),
+    )!;
     const filePath = (() => {
       for (const reg of mirrorRegs) {
         reg.lastIndex = 0;
@@ -118,13 +135,16 @@ export const getVersionUrlBuilder = (
     })();
     if (filePath === undefined) return;
     const type = url
-      .substring(mirrorBaseUrl.length, url.indexOf(filePath))
+      .substring(matchedMirrorBaseUrl.length, url.indexOf(filePath))
       .split('/')[0];
     return {
       filePath,
-      templateUrl: [mirrorBaseUrl + type + `/`, filePath],
+      templateUrl: [matchedMirrorBaseUrl + type + `/`, filePath],
     };
-  } else if (url.startsWith(mirrorContentBaseUrl)) {
+  } else if (mirrorContentBaseUrls.some((baseUrl) => url.startsWith(baseUrl))) {
+    const matchedMirrorContentBaseUrl = mirrorContentBaseUrls.find((baseUrl) =>
+      url.startsWith(baseUrl),
+    )!;
     const filePath = (() => {
       for (const reg of mirrorContentRegs) {
         reg.lastIndex = 0;
@@ -136,7 +156,7 @@ export const getVersionUrlBuilder = (
     if (filePath === undefined) return;
     return {
       filePath,
-      templateUrl: [mirrorContentBaseUrl, filePath],
+      templateUrl: [matchedMirrorContentBaseUrl, filePath],
     };
   }
 };

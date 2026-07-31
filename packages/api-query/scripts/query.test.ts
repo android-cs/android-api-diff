@@ -10,6 +10,10 @@ import {
   searchFilePathByRefName,
   toAndroidApiResolution,
 } from '../src/resolve.ts';
+import {
+  loadAndroidSourceFile,
+  normalizeAndroidSourceFilePath,
+} from '../src/source.ts';
 import { toAndroidApiResolvedType } from '../src/struct.ts';
 import type {
   AndroidApiMemberResult,
@@ -84,6 +88,65 @@ public interface IExample {
       '/core/java/android/accessibilityservice/AccessibilityButtonController.java',
     ],
   });
+  assert.deepEqual(
+    getVersionUrlBuilder(
+      'https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/app/ActivityThread.java',
+    ),
+    {
+      filePath: '/core/java/android/app/ActivityThread.java',
+      templateUrl: [
+        'https://github.com/aosp-mirror/platform_frameworks_base/blob/',
+        '/core/java/android/app/ActivityThread.java',
+      ],
+    },
+  );
+  assert.deepEqual(
+    getVersionUrlBuilder(
+      'https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android-16.0.0_r1/core/java/android/app/ActivityThread.java',
+    ),
+    {
+      filePath: '/core/java/android/app/ActivityThread.java',
+      templateUrl: [
+        'https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/',
+        '/core/java/android/app/ActivityThread.java',
+      ],
+    },
+  );
+}
+
+{
+  assert.equal(
+    normalizeAndroidSourceFilePath(
+      '\\frameworks\\base\\core\\java\\android\\app\\ActivityThread.java',
+    ),
+    'core/java/android/app/ActivityThread.java',
+  );
+  for (const invalidPath of [
+    '../ActivityThread.java',
+    '%2e%2e/%2e%2e/octocat/Hello-World/master/README',
+    'core/java/android/app/ActivityThread.java?download=1',
+    'core/java/android/app/ActivityThread.java#L1',
+    'core/java/android/app/\u0000ActivityThread.java',
+  ]) {
+    assert.equal(normalizeAndroidSourceFilePath(invalidPath), undefined);
+  }
+
+  let fetchedUrl = '';
+  const sourceFile = await loadAndroidSourceFile(
+    {
+      fetchText: async (url) => {
+        fetchedUrl = url;
+        return 'source';
+      },
+    },
+    'android-17.0.0_r1',
+    'core/java/android/app/Activity Thread.java',
+  );
+  assert.equal(
+    fetchedUrl,
+    'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-17.0.0_r1/core/java/android/app/Activity%20Thread.java',
+  );
+  assert.equal(sourceFile.url, fetchedUrl);
 }
 
 {
