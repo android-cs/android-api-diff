@@ -745,13 +745,23 @@ const baseResult = (
   assert.equal(result.declarations.length, 2);
   assert.doesNotMatch(result.code, /@RemapMethod/);
   assert.doesNotMatch(result.code, /li\.songe\.remap\.RemapMethod/);
-  assert.match(
+  assert.match(result.code, /import android\.window\.ScreenCapture;/);
+  assert.match(result.code, /import android\.window\.ScreenCaptureInternal;/);
+  assert.doesNotMatch(
     result.code,
-    /boolean takeScreenshot\(Rect crop, android\.window\.ScreenCapture\.ScreenCaptureListener listener, int displayId\);/,
+    /import android\.window\.ScreenCapture\.ScreenCaptureListener;/,
+  );
+  assert.doesNotMatch(
+    result.code,
+    /import android\.window\.ScreenCaptureInternal\.ScreenCaptureListener;/,
   );
   assert.match(
     result.code,
-    /boolean takeScreenshot\(Rect crop, android\.window\.ScreenCaptureInternal\.ScreenCaptureListener listener, int displayId\);/,
+    /boolean takeScreenshot\(Rect crop, ScreenCapture\.ScreenCaptureListener listener, int displayId\);/,
+  );
+  assert.match(
+    result.code,
+    /boolean takeScreenshot\(Rect crop, ScreenCaptureInternal\.ScreenCaptureListener listener, int displayId\);/,
   );
 }
 
@@ -1201,6 +1211,32 @@ const baseResult = (
   assert.doesNotMatch(result.code, /import bar\.A;/);
   assert.match(result.code, /useFoo\(foo\.A value\)/);
   assert.match(result.code, /useBar\(bar\.A value\)/);
+}
+
+{
+  const useFoo = method('void', [{ name: 'value', type: 'Inner' }], 'useFoo');
+  useFoo.imports = [0];
+  const useBar = method('void', [{ name: 'value', type: 'Other' }], 'useBar');
+  useBar.imports = [1];
+  const result = renderAndroidApiCode(
+    baseResult(
+      'NestedImportConflict',
+      'core/java/android/example/NestedImportConflict.java',
+      ['NestedImportConflict'],
+      [
+        range('14', 'UPSIDE_DOWN_CAKE', 34, 'android-14.0.0_r1', [
+          useFoo,
+          useBar,
+        ]),
+      ],
+      [{ name: 'NestedImportConflict', kind: 'class', isHidden: true }],
+      ['foo.Outer.Inner', 'bar.Outer.Other'],
+    ),
+  );
+  assert.doesNotMatch(result.code, /import foo\.Outer;/);
+  assert.doesNotMatch(result.code, /import bar\.Outer;/);
+  assert.match(result.code, /useFoo\(foo\.Outer\.Inner value\)/);
+  assert.match(result.code, /useBar\(bar\.Outer\.Other value\)/);
 }
 
 {

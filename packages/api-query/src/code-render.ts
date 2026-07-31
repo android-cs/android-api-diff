@@ -46,6 +46,14 @@ interface CodeImportPlan {
   conflictingNames: Set<string>;
 }
 
+interface TypeImportInfo {
+  qualifiedName: string;
+  sourceSimpleName?: string;
+  bindingName?: string;
+  renderedName?: string;
+  normalizedImportName: string;
+}
+
 interface RenderedCode {
   memberCode: string;
   code: string;
@@ -1191,10 +1199,60 @@ const getImportTarget = (importName: string) => {
   return importName.replace(importPrefixReg, '');
 };
 
+const getTypeImportInfo = (importName: string): TypeImportInfo => {
+  const qualifiedName = getImportTarget(importName);
+  if (importName.startsWith('static ') || qualifiedName.endsWith('.*')) {
+    const sourceSimpleName = qualifiedName.endsWith('.*')
+      ? undefined
+      : qualifiedName.split('.').at(-1);
+    return {
+      qualifiedName,
+      sourceSimpleName,
+      bindingName: sourceSimpleName,
+      renderedName: sourceSimpleName,
+      normalizedImportName: importName,
+    };
+  }
+
+  const parts = qualifiedName.split('.');
+  const sourceSimpleName = parts.at(-1);
+  const topLevelTypeIndex = parts.findIndex((part) => /^[A-Z]/.test(part));
+  if (topLevelTypeIndex < 0) {
+    return {
+      qualifiedName,
+      sourceSimpleName,
+      bindingName: sourceSimpleName,
+      renderedName: sourceSimpleName,
+      normalizedImportName: importName,
+    };
+  }
+
+  return {
+    qualifiedName,
+    sourceSimpleName,
+    bindingName: parts[topLevelTypeIndex],
+    renderedName: parts.slice(topLevelTypeIndex).join('.'),
+    normalizedImportName: parts.slice(0, topLevelTypeIndex + 1).join('.'),
+  };
+};
+
 const getImportSimpleName = (importName: string): string | undefined => {
-  const target = getImportTarget(importName);
-  if (target.endsWith('.*')) return;
-  return target.split('.').at(-1);
+  return getTypeImportInfo(importName).sourceSimpleName;
+};
+
+const getMemberTypeImportInfo = (
+  member: AndroidApiMemberResult,
+  sourceImports: string[],
+  simpleName: string,
+): TypeImportInfo | undefined => {
+  for (const index of member.imports) {
+    const importName = sourceImports[index];
+    if (importName === undefined) {
+      throw new Error(`Invalid member import index: ${index}`);
+    }
+    const info = getTypeImportInfo(importName);
+    if (info.sourceSimpleName === simpleName) return info;
+  }
 };
 
 const getMemberImportedType = (
@@ -1202,15 +1260,8 @@ const getMemberImportedType = (
   sourceImports: string[],
   simpleName: string,
 ): string | undefined => {
-  for (const index of member.imports) {
-    const importName = sourceImports[index];
-    if (importName === undefined) {
-      throw new Error(`Invalid member import index: ${index}`);
-    }
-    if (getImportSimpleName(importName) === simpleName) {
-      return getImportTarget(importName);
-    }
-  }
+  return getMemberTypeImportInfo(member, sourceImports, simpleName)
+    ?.qualifiedName;
 };
 
 const getGeneratedName = (
@@ -1241,16 +1292,13 @@ const qualifyTypeText = (
   sourceImports: string[],
   conflictingNames: Set<string>,
 ) => {
-  if (conflictingNames.size === 0) return type;
   return type.replace(qualifiedTypeReg, (qualifiedName) => {
     const simpleName = qualifiedName.split('.')[0]!;
-    if (!conflictingNames.has(simpleName)) return qualifiedName;
-    const importedType = getMemberImportedType(
-      member,
-      sourceImports,
-      simpleName,
-    );
-    if (!importedType) return qualifiedName;
+    const info = getMemberTypeImportInfo(member, sourceImports, simpleName);
+    if (!info?.renderedName || !info.bindingName) return qualifiedName;
+    const importedType = conflictingNames.has(info.bindingName)
+      ? info.qualifiedName
+      : info.renderedName;
     return `${importedType}${qualifiedName.substring(simpleName.length)}`;
   });
 };
@@ -1260,18 +1308,20 @@ const addImport = (
   packageName: string,
   importName: string,
 ) => {
-  const qualifiedName = getImportTarget(importName);
+  const normalizedImportName =
+    getTypeImportInfo(importName).normalizedImportName;
+  const qualifiedName = getImportTarget(normalizedImportName);
   const importPackage = qualifiedName.endsWith('.*')
     ? qualifiedName.slice(0, -2)
     : qualifiedName.substring(0, qualifiedName.lastIndexOf('.'));
   if (
-    !importName.startsWith('static ') &&
+    !normalizedImportName.startsWith('static ') &&
     (importPackage === 'java.lang' ||
       (packageName && importPackage === packageName))
   ) {
     return;
   }
-  imports.add(importName);
+  imports.add(normalizedImportName);
 };
 
 const hasRemappedClass = (
