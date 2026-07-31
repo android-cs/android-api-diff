@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "type-check": "vue-tsc",
+    "test:overloads": "node --test scripts/overloads.test.ts",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

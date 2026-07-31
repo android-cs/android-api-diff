@@ -10,6 +10,7 @@ const {
   androidVersionList,
   diffTypeReult,
   overloadOptions,
+  showOverloadSelect,
   selectedOverloadKey,
 } = useSharedHomeState();
 const props = defineProps<{
@@ -92,7 +93,7 @@ const copyMemberCode = async () => {
     <div v-if="diffTypeReult.length" ref="viewRef" flex items-start gap-8px>
       <div flex flex-1 min-w-0 flex-col gap-6px>
         <MSelect
-          v-if="overloadOptions.length > 1"
+          v-if="showOverloadSelect"
           v-model="selectedOverloadValue"
           class="overload-select"
           match-popover-width

@@ -25,6 +25,7 @@ import { isConstructorReference } from '@android-cs/api-query';
 import { getAndroidApiOverloadId } from '@android-cs/api-query/query';
 import { computed, onScopeDispose, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { hasConcurrentOverloads } from './overloads.ts';
 
 export const ANDROID_PREFIX_LEN = 'android-'.length;
 
@@ -413,9 +414,15 @@ export const useSharedHomeState = createSharedComposable(() => {
         a.parameterCount - b.parameterCount || a.label.localeCompare(b.label),
     );
   });
-  watch(overloadOptions, (options) => {
+  const showOverloadSelect = computed(() =>
+    hasConcurrentOverloads(diffResultList.value),
+  );
+  watch([overloadOptions, showOverloadSelect], ([options, showSelect]) => {
     const selected = selectedOverloadKey.value;
-    if (selected && !options.some((option) => option.key === selected)) {
+    if (
+      selected &&
+      (!showSelect || !options.some((option) => option.key === selected))
+    ) {
       selectedOverloadKey.value = null;
     }
   });
@@ -558,6 +565,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     diffResultList,
     diffTypeReult,
     overloadOptions,
+    showOverloadSelect,
     selectedOverloadKey,
     handleDiff,
     isValidSearchRef,
