@@ -26,7 +26,7 @@ import type {
 import { getMirrorContentUrl } from './url.ts';
 
 export const STRUCT_CACHE_VERSION = 'struct:v11';
-export const QUERY_CACHE_VERSION = 'query:v24';
+export const QUERY_CACHE_VERSION = 'query:v25';
 const DEFAULT_CONCURRENCY = 3;
 const MAX_STRUCT_CONTENT_ENTRIES = 256;
 

@@ -159,7 +159,7 @@ public interface IExample {
   assert.deepEqual(resolution?.source, {
     repo: 'platform/frameworks/base',
     path: sourcePath,
-    url: 'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/:tag/core/java/android/accessibilityservice/AccessibilityButtonController.java',
+    url: 'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/:tag/core/java/android/accessibilityservice/AccessibilityButtonController.java',
   });
 }
 
@@ -403,7 +403,7 @@ const result = await queryAndroidApi(runtime, {
 
 assert.equal(
   result.source?.url,
-  'https://github.com/msft-mirror-aosp/platform.frameworks.base/blob/:tag/core/java/android/app/IExample.java',
+  'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/:tag/core/java/android/app/IExample.java',
 );
 assert.equal(result.summary.checkedTags, 5);
 assert.equal(result.summary.overloadCount, 1);

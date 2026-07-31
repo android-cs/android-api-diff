@@ -32,7 +32,7 @@ export interface SearchFromData {
 export interface AndroidApiSourceLocation {
   repo: 'platform/frameworks/base';
   path: string;
-  /** GitHub source URL template. Replace `:tag` with an Android release tag. */
+  /** Raw source URL template. Replace `:tag` with an Android release tag. */
   url: string;
 }
 

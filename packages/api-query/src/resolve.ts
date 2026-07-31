@@ -3,7 +3,7 @@ import type {
   FileTarget,
   SearchFromData,
 } from './types.ts';
-import { fixFilePath, getMirrorSourceUrl, getSourceTargetUrl } from './url.ts';
+import { fixFilePath, getMirrorContentUrl, getSourceTargetUrl } from './url.ts';
 
 const aidlFileNameRegs = [/^I[A-Z].*/, /\.I[A-Z].*/];
 const sourceFileReg = /\.(java|aidl)$/;
@@ -153,7 +153,7 @@ export const toAndroidApiResolution = (
     source: {
       repo: 'platform/frameworks/base',
       path: search.filePath,
-      url: getMirrorSourceUrl(`:tag/${search.filePath}`),
+      url: getMirrorContentUrl(`:tag/${search.filePath}`),
     },
     resolvedTarget: {
       kind: search.targetKind,
