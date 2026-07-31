@@ -702,6 +702,60 @@ const baseResult = (
 
 {
   const methodA = method(
+    'boolean',
+    [
+      { name: 'crop', type: 'Rect' },
+      { name: 'listener', type: 'ScreenCaptureListener' },
+      { name: 'displayId', type: 'int' },
+    ],
+    'takeScreenshot',
+  );
+  methodA.imports = [0, 1];
+  const methodB = method(
+    'boolean',
+    [
+      { name: 'crop', type: 'Rect' },
+      { name: 'listener', type: 'ScreenCaptureListener' },
+      { name: 'displayId', type: 'int' },
+    ],
+    'takeScreenshot',
+  );
+  methodB.imports = [0, 2];
+  const result = renderAndroidApiCode(
+    baseResult(
+      'IUiAutomationConnection.takeScreenshot',
+      'core/java/android/app/IUiAutomationConnection.aidl',
+      ['IUiAutomationConnection', 'takeScreenshot'],
+      [
+        range('15.0.0_r6', 'VANILLA_ICE_CREAM', 35, 'android-15.0.0_r6', [
+          methodA,
+        ]),
+        range('16.0.0_r4', 'BAKLAVA', 36, 'android-16.0.0_r4', [methodB]),
+      ],
+      undefined,
+      [
+        'android.graphics.Rect',
+        'android.window.ScreenCapture.ScreenCaptureListener',
+        'android.window.ScreenCaptureInternal.ScreenCaptureListener',
+      ],
+    ),
+  );
+
+  assert.equal(result.declarations.length, 2);
+  assert.doesNotMatch(result.code, /@RemapMethod/);
+  assert.doesNotMatch(result.code, /li\.songe\.remap\.RemapMethod/);
+  assert.match(
+    result.code,
+    /boolean takeScreenshot\(Rect crop, android\.window\.ScreenCapture\.ScreenCaptureListener listener, int displayId\);/,
+  );
+  assert.match(
+    result.code,
+    /boolean takeScreenshot\(Rect crop, android\.window\.ScreenCaptureInternal\.ScreenCaptureListener listener, int displayId\);/,
+  );
+}
+
+{
+  const methodA = method(
     'String',
     [{ name: 'callingPkg', type: 'String' }],
     'call',

@@ -570,11 +570,24 @@ const mergeDeclarationsByIdentity = (
 
 const getJavaMethodSignatureKey = (
   member: AndroidApiMemberResult,
+  sourceImports: string[],
   name = member.name,
 ) => {
   if (member.kind !== 'method') return '';
   return `${name}(${member.parameters
-    .map((parameter) => parameter.type)
+    .map((parameter) =>
+      parameter.type.replace(qualifiedTypeReg, (qualifiedName) => {
+        const simpleName = qualifiedName.split('.')[0]!;
+        const importedType = getMemberImportedType(
+          member,
+          sourceImports,
+          simpleName,
+        );
+        return importedType
+          ? `${importedType}${qualifiedName.substring(simpleName.length)}`
+          : qualifiedName;
+      }),
+    )
     .join(',')})`;
 };
 
@@ -586,6 +599,7 @@ const getRemapMethodSuffix = (version: AndroidVersionInfo) => {
 const getRemappedMethodName = (
   declaration: AndroidApiCodeDeclaration,
   usedMethodKeys: Set<string>,
+  sourceImports: string[],
 ) => {
   const member = declaration.member;
   if (member.kind !== 'method') return member.name;
@@ -593,7 +607,9 @@ const getRemappedMethodName = (
   const suffix = getRemapMethodSuffix(declaration.requiresApi);
   let index = 1;
   let name = `${member.name}${suffix}`;
-  while (usedMethodKeys.has(getJavaMethodSignatureKey(member, name))) {
+  while (
+    usedMethodKeys.has(getJavaMethodSignatureKey(member, sourceImports, name))
+  ) {
     index++;
     name = `${member.name}${suffix}_${index}`;
   }
@@ -607,7 +623,7 @@ const applyRemapMethodNames = (
   const groups = new Map<string, AndroidApiCodeDeclaration[]>();
   for (const declaration of declarations) {
     if (declaration.member.kind !== 'method') continue;
-    const key = getJavaMethodSignatureKey(declaration.member);
+    const key = getJavaMethodSignatureKey(declaration.member, sourceImports);
     const group = groups.get(key) ?? [];
     group.push(declaration);
     groups.set(key, group);
@@ -630,7 +646,9 @@ const applyRemapMethodNames = (
       declaration.member.kind === 'method' &&
       !remappedDeclarations.has(declaration)
     ) {
-      usedMethodKeys.add(getJavaMethodSignatureKey(declaration.member));
+      usedMethodKeys.add(
+        getJavaMethodSignatureKey(declaration.member, sourceImports),
+      );
     }
   }
 
@@ -641,12 +659,16 @@ const applyRemapMethodNames = (
       return declaration;
     }
 
-    const name = getRemappedMethodName(declaration, usedMethodKeys);
+    const name = getRemappedMethodName(
+      declaration,
+      usedMethodKeys,
+      sourceImports,
+    );
     const member = {
       ...declaration.member,
       name,
     };
-    usedMethodKeys.add(getJavaMethodSignatureKey(member));
+    usedMethodKeys.add(getJavaMethodSignatureKey(member, sourceImports));
     return {
       ...declaration,
       member,
