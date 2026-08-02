@@ -3,7 +3,9 @@ import {
   getGoogleSourceUrl,
   getMirrorSourceUrl,
   getSourceUrlWithLine,
+  getVersionUrlBuilder,
 } from '@/utils/url';
+import { getSourceTargetUrl } from '@android-cs/api-query';
 import { computed } from 'vue';
 import { ANDROID_PREFIX_LEN, useSharedHomeState } from './homeState.ts';
 
@@ -12,8 +14,13 @@ const props = defineProps<{
   future?: boolean;
 }>();
 
-const { urlBuilder, getDiffResult, searchFromData, sourceLinkTarget } =
-  useSharedHomeState();
+const {
+  urlBuilder,
+  getDiffResult,
+  getDiffResultSourcePath,
+  searchFromData,
+  sourceLinkTarget,
+} = useSharedHomeState();
 const diffResult = computed(() => getDiffResult(props.tag));
 
 const title = computed<string | undefined>(() => {
@@ -35,7 +42,7 @@ const notFound = computed(() => diffResult.value?.notFound);
 const sourceUrl = computed<string | undefined>(() => {
   const builder = urlBuilder.value;
   if (!builder) return '';
-  const t = builder.templateUrl;
+  const sourcePath = getDiffResultSourcePath(props.tag);
   const loc = (() => {
     if (searchFromData.value.targetKind === 'member') {
       return diffResult.value?.members?.[0]?.loc;
@@ -45,13 +52,16 @@ const sourceUrl = computed<string | undefined>(() => {
     }
   })();
   if (sourceLinkTarget.value === 'googlesource') {
-    const u = getGoogleSourceUrl(props.tag + builder.filePath);
+    const u = getGoogleSourceUrl(`${props.tag}/${sourcePath}`);
     return loc ? getSourceUrlWithLine(u, loc) : u;
   }
   if (sourceLinkTarget.value === 'github') {
-    const u = getMirrorSourceUrl(props.tag + builder.filePath);
+    const u = getMirrorSourceUrl(`${props.tag}/${sourcePath}`);
     return loc ? getSourceUrlWithLine(u, loc) : u;
   }
+  const resolvedBuilder = getVersionUrlBuilder(getSourceTargetUrl(sourcePath));
+  if (!resolvedBuilder) return '';
+  const t = resolvedBuilder.templateUrl;
   const u = t[0] + props.tag + t[1];
   if (loc) {
     return getSourceUrlWithLine(u, loc);

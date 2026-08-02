@@ -13,6 +13,37 @@ const getFileStructName = (filePath: string): string => {
   return filePath.split('/').at(-1)!.replace(sourceFileReg, '');
 };
 
+export interface AndroidSourceFileRedirect {
+  fromPath: string;
+  toPath: string;
+  minApiVersion: number;
+  maxApiVersion: number;
+}
+
+// Register exceptional historical source moves here. The first matching rule wins.
+export const androidSourceFileRedirects = [
+  {
+    fromPath: 'core/java/android/os/BinderProxy.java',
+    toPath: 'core/java/android/os/Binder.java',
+    minApiVersion: 26,
+    maxApiVersion: 28,
+  },
+] as const satisfies readonly AndroidSourceFileRedirect[];
+
+export const redirectAndroidSourceFilePath = (
+  filePath: string,
+  apiVersion: number,
+  redirects: readonly AndroidSourceFileRedirect[] = androidSourceFileRedirects,
+): string => {
+  const redirect = redirects.find(
+    (item) =>
+      item.fromPath === filePath &&
+      apiVersion >= item.minApiVersion &&
+      apiVersion <= item.maxApiVersion,
+  );
+  return redirect?.toPath ?? filePath;
+};
+
 const getMayFileRefNames = (name: string): string[] => {
   const r = new Set<string>([name]);
   const parts = name.split('.');

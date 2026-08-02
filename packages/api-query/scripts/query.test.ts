@@ -7,6 +7,7 @@ import {
   STRUCT_CACHE_VERSION,
 } from '../src/query.ts';
 import {
+  redirectAndroidSourceFilePath,
   searchFilePathByRefName,
   toAndroidApiResolution,
 } from '../src/resolve.ts';
@@ -161,6 +162,36 @@ public interface IExample {
     path: sourcePath,
     url: 'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/:tag/core/java/android/accessibilityservice/AccessibilityButtonController.java',
   });
+}
+
+{
+  const binderProxyPath = 'core/java/android/os/BinderProxy.java';
+  const binderPath = 'core/java/android/os/Binder.java';
+  for (const apiVersion of [26, 27, 28]) {
+    assert.equal(
+      redirectAndroidSourceFilePath(binderProxyPath, apiVersion),
+      binderPath,
+    );
+  }
+  assert.equal(
+    redirectAndroidSourceFilePath(binderProxyPath, 29),
+    binderProxyPath,
+  );
+  assert.equal(
+    redirectAndroidSourceFilePath('core/java/android/os/Parcel.java', 28),
+    'core/java/android/os/Parcel.java',
+  );
+  assert.equal(
+    redirectAndroidSourceFilePath('example/NewName.java', 30, [
+      {
+        fromPath: 'example/NewName.java',
+        toPath: 'example/LegacyContainer.java',
+        minApiVersion: 29,
+        maxApiVersion: 30,
+      },
+    ]),
+    'example/LegacyContainer.java',
+  );
 }
 
 {
@@ -520,6 +551,84 @@ interface IOrdered {
   assert.doesNotMatch(
     renderAndroidApiCode(versionMajorResult).code,
     /RemapType/,
+  );
+}
+
+{
+  const fetchedSourcePaths: string[] = [];
+  const relocatedSourceRuntime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => [
+      'core/java/android/os/Binder.java',
+      'core/java/android/os/BinderProxy.java',
+    ],
+    loadAndroidVersionList: async () => [
+      {
+        version: '9',
+        alias: 'P',
+        apiVersion: 28,
+        tags: ['android-9.0.0_r1'],
+        futureTags: [],
+      },
+      {
+        version: '10',
+        alias: 'Q',
+        apiVersion: 29,
+        tags: ['android-10.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async (url) => {
+      const sourcePath = url.match(
+        /\/(android-[^/]+\/core\/java\/android\/os\/[^/]+\.java)$/,
+      )?.[1];
+      assert.ok(sourcePath);
+      fetchedSourcePaths.push(sourcePath);
+      if (
+        sourcePath === 'android-9.0.0_r1/core/java/android/os/BinderProxy.java'
+      ) {
+        return '404: Not Found';
+      }
+      return `
+package android.os;
+
+final class BinderProxy {
+  public boolean pingBinder() { return true; }
+}
+`;
+    },
+  };
+
+  const relocatedSourceResult = await queryAndroidApi(relocatedSourceRuntime, {
+    apiName: 'BinderProxy.pingBinder',
+    minSdk: 28,
+    concurrency: 1,
+  });
+  assert.deepEqual(fetchedSourcePaths, [
+    'android-9.0.0_r1/core/java/android/os/Binder.java',
+    'android-10.0.0_r1/core/java/android/os/BinderProxy.java',
+  ]);
+  assert.equal(relocatedSourceResult.summary.checkedTags, 2);
+  assert.equal(relocatedSourceResult.summary.foundTags, 2);
+  assert.deepEqual(
+    relocatedSourceResult.ranges.map((range) => range.missingReason),
+    [undefined],
+  );
+  assert.equal(relocatedSourceResult.overloads[0]?.signature, '() -> boolean');
+
+  fetchedSourcePaths.length = 0;
+  const missingMemberResult = await queryAndroidApi(relocatedSourceRuntime, {
+    apiName: 'BinderProxy.missingMember',
+    minSdk: 28,
+    concurrency: 1,
+  });
+  assert.deepEqual(fetchedSourcePaths, [
+    'android-9.0.0_r1/core/java/android/os/Binder.java',
+    'android-10.0.0_r1/core/java/android/os/BinderProxy.java',
+  ]);
+  assert.equal(missingMemberResult.summary.foundTags, 0);
+  assert.deepEqual(
+    missingMemberResult.ranges.map((range) => range.missingReason),
+    ['api-not-found'],
   );
 }
 

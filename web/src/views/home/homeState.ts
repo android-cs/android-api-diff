@@ -21,7 +21,10 @@ import {
   watchImmediate,
 } from '@vueuse/core';
 import type { ClassMember, ClassMemberParam } from '@android-cs/api-parser';
-import { isConstructorReference } from '@android-cs/api-query';
+import {
+  isConstructorReference,
+  redirectAndroidSourceFilePath,
+} from '@android-cs/api-query';
 import { getAndroidApiOverloadId } from '@android-cs/api-query/query';
 import { computed, onScopeDispose, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -281,6 +284,13 @@ export const useSharedHomeState = createSharedComposable(() => {
   const androidOrderTags = computed(() =>
     filteredAndroidVersionList.value.flatMap((v) => v.tags),
   );
+  const apiVersionByTag = computed(() => {
+    const result = new Map<string, number>();
+    for (const version of filteredAndroidVersionList.value) {
+      for (const tag of version.tags) result.set(tag, version.apiVersion);
+    }
+    return result;
+  });
 
   const isCanParsedUrl = computed(() => {
     const builder = urlBuilder.value;
@@ -320,6 +330,18 @@ export const useSharedHomeState = createSharedComposable(() => {
     return getCachedColor(cache, key);
   };
 
+  const getSourceFilePath = (tag: string): string =>
+    redirectAndroidSourceFilePath(
+      searchFromData.value.filePath,
+      apiVersionByTag.value.get(tag) ?? 0,
+    );
+
+  const getLoadedSourceCandidate = (tag: string) => {
+    const filePath = `${tag}/${getSourceFilePath(tag)}`;
+    const file = fileApiMap[filePath];
+    return file ? { filePath, file } : undefined;
+  };
+
   const diffResultList = computed<DiffResultItem[]>(() => {
     const builder = urlBuilder.value;
     if (!builder?.filePath) return emptyArray;
@@ -334,9 +356,9 @@ export const useSharedHomeState = createSharedComposable(() => {
     if (targetKind !== 'file' && targetPaths.length === 0) return emptyArray;
     return androidOrderTags.value
       .map((tag) => {
-        const filePath = tag + builder.filePath;
-        const file = fileApiMap[filePath];
-        if (!file) return;
+        const sourceCandidate = getLoadedSourceCandidate(tag);
+        if (!sourceCandidate) return;
+        const { filePath, file } = sourceCandidate;
         const structs = file.structs;
         let typeDesc = '';
         const notFound = notFoundFileMap[filePath];
@@ -451,6 +473,7 @@ export const useSharedHomeState = createSharedComposable(() => {
   const getDiffResult = (tag: string): DiffResultItem | undefined => {
     return displayDiffResultList.value.find((v) => v.tag === tag);
   };
+  const getDiffResultSourcePath = getSourceFilePath;
 
   const diffTypeReult = useEqualComputed<DiffTypeItem[]>(() => {
     const list: DiffTypeItem[] = [];
@@ -502,8 +525,10 @@ export const useSharedHomeState = createSharedComposable(() => {
       if (s.signal.aborted) return;
     }
     if (!urlBuilder.value) return;
-    const builder = urlBuilder.value;
     const versionList = filteredAndroidVersionList.value;
+    const pullSourceCandidate = async (tag: string) => {
+      await pullApiFileByUrl(`${tag}/${getSourceFilePath(tag)}`, s);
+    };
     // 数组作为矩阵列，按行遍历，优先访问每个大版本的头部的小版本
     const maxRows = versionList.reduce((m, v) => Math.max(m, v.tags.length), 0);
     const tempList: Promise<unknown>[] = [];
@@ -514,9 +539,7 @@ export const useSharedHomeState = createSharedComposable(() => {
       for (const version of versionList) {
         if (row >= version.tags.length) continue;
         if (s.signal.aborted) return;
-        tempList.push(
-          pullApiFileByUrl(version.tags[row] + builder.filePath, s),
-        );
+        tempList.push(pullSourceCandidate(version.tags[row]!));
         if (tempList.length >= diffConcurrentCount.value) {
           await awaitTempList();
         }
@@ -577,6 +600,7 @@ export const useSharedHomeState = createSharedComposable(() => {
     setSearchRef,
     stopDiff,
     getDiffResult,
+    getDiffResultSourcePath,
     urlBuilder,
     androidVersionList: filteredAndroidVersionList,
     androidVersionColors: displayAndroidVersionColors,

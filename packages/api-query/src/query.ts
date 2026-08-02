@@ -5,6 +5,7 @@ import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
 import {
   isConstructorReference,
+  redirectAndroidSourceFilePath,
   searchFilePathByRefName,
   toAndroidApiResolution,
 } from './resolve.ts';
@@ -26,7 +27,7 @@ import type {
 import { getMirrorContentUrl } from './url.ts';
 
 export const STRUCT_CACHE_VERSION = 'struct:v11';
-export const QUERY_CACHE_VERSION = 'query:v25';
+export const QUERY_CACHE_VERSION = 'query:v26';
 const DEFAULT_CONCURRENCY = 3;
 const MAX_STRUCT_CONTENT_ENTRIES = 256;
 
@@ -631,7 +632,6 @@ export const queryAndroidApi = async (
     aidlJavaFiles,
     search,
   );
-
   const resolution = toAndroidApiResolution(search)!;
   const androidVersionList = getSelectedTags(
     await loadAndroidVersionList(runtime, options.signal),
@@ -652,7 +652,11 @@ export const queryAndroidApi = async (
       taggedVersions.map(({ tag, version }) =>
         limit(async (): Promise<InternalAndroidApiVersionResult> => {
           options.signal?.throwIfAborted();
-          const taggedFilePath = `${tag}/${search.filePath}`;
+          const sourceFilePath = redirectAndroidSourceFilePath(
+            search.filePath,
+            version.apiVersion,
+          );
+          const taggedFilePath = `${tag}/${sourceFilePath}`;
           const { file, sourceFileNotFound } = await getStructsByTaggedFile(
             runtime,
             taggedFilePath,
