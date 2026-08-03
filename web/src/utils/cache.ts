@@ -1,5 +1,11 @@
-import type { ApiFile } from '@android-cs/api-parser';
-import { BoundedContentValueInterner } from '@android-cs/api-query';
+import {
+  BoundedContentValueInterner,
+  type AndroidApiStructCacheEntry,
+} from '@android-cs/api-query';
+import {
+  decodeApiFileCacheEntry,
+  encodeApiFileCacheEntry,
+} from './cache/apiFileEntry';
 import {
   readCacheValue,
   writeCacheBytesIfAvailable,
@@ -15,7 +21,6 @@ import { resetCacheDatabases } from './cache/database';
 import {
   broadcastCacheReset,
   getCacheEpoch,
-  getLogicalFlight,
   invalidateLocalFlights,
   runSingleFlight,
   setExternalResetHandler,
@@ -26,7 +31,8 @@ interface UrlCacheKeyBuilder {
   (url: string): string;
 }
 
-const apiFileInterner = new BoundedContentValueInterner<ApiFile>(256);
+const apiFileInterner =
+  new BoundedContentValueInterner<AndroidApiStructCacheEntry>(256);
 
 const scheduleStorageEstimateUpdate = (): void => {
   void updateStorageEstimate().catch(() => undefined);
@@ -79,36 +85,21 @@ export const persistentFetch = async (
 
 export const getOrSetApiFileCache = async (
   filePath: string,
-  fallback: () => Promise<ApiFile>,
-): Promise<ApiFile> => {
+  fallback: () => Promise<AndroidApiStructCacheEntry>,
+): Promise<AndroidApiStructCacheEntry> => {
   const expectedEpoch = getCacheEpoch();
   const keyHash = await sha256String(filePath);
   return runSingleFlight(STRUCT_DOMAIN, keyHash, expectedEpoch, async () => {
     const cached = await readCacheValue(
       STRUCT_DOMAIN,
       keyHash,
-      (bytes): ApiFile => {
-        const value: unknown = JSON.parse(decodeText(bytes));
-        if (
-          typeof value !== 'object' ||
-          value === null ||
-          !('package' in value) ||
-          !('imports' in value) ||
-          !('structs' in value) ||
-          typeof value.package !== 'string' ||
-          !Array.isArray(value.imports) ||
-          !Array.isArray(value.structs)
-        ) {
-          throw new Error('Cached API file value is invalid');
-        }
-        return value as ApiFile;
-      },
+      decodeApiFileCacheEntry,
       apiFileInterner,
     ).catch(() => undefined);
     if (cached !== undefined) return cached;
 
     const value = await fallback();
-    const bytes = encodeText(JSON.stringify(value));
+    const bytes = encodeApiFileCacheEntry(value);
     const contentHash = await writeCacheBytesIfAvailable(
       STRUCT_DOMAIN,
       keyHash,
@@ -118,24 +109,6 @@ export const getOrSetApiFileCache = async (
     );
     return contentHash ? apiFileInterner.intern(contentHash, value) : value;
   });
-};
-
-export const check404File = async (filePath: string): Promise<boolean> => {
-  const expectedEpoch = getCacheEpoch();
-  const keyHash = await sha256String(filePath);
-  const current = getLogicalFlight(TEXT_DOMAIN, keyHash, expectedEpoch);
-  if (current) {
-    try {
-      const value: unknown = await current;
-      return typeof value === 'string' && value.startsWith('404:');
-    } catch {
-      return false;
-    }
-  }
-  const value = await readCacheValue(TEXT_DOMAIN, keyHash, decodeText).catch(
-    () => undefined,
-  );
-  return value?.startsWith('404:') ?? false;
 };
 
 export const clearLocalCache = async (): Promise<void> => {

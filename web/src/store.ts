@@ -1,8 +1,4 @@
-import {
-  check404File,
-  getOrSetApiFileCache,
-  persistentFetch,
-} from '@/utils/cache';
+import { getOrSetApiFileCache, persistentFetch } from '@/utils/cache';
 import type { ApiFile } from '@android-cs/api-parser';
 import {
   loadAidlJavaFiles,
@@ -87,7 +83,7 @@ export const pullApiFileByUrl = async (
   if (temp) return temp;
   const url = getMirrorContentUrl(filePath);
   let parsedSourceKey: string | undefined;
-  const file = await getOrSetApiFileCache(filePath, async () => {
+  const entry = await getOrSetApiFileCache(filePath, async () => {
     const text = await limit(() => {
       if (signal.signal.aborted) {
         throw new Error('aborted');
@@ -99,20 +95,24 @@ export const pullApiFileByUrl = async (
       : url.endsWith('.java')
         ? 'java'
         : 'unsupported';
-    const sourceHash = text.startsWith('404:')
+    const sourceFileNotFound = text.startsWith('404:');
+    const sourceHash = sourceFileNotFound
       ? 'not-found'
       : await sha256String(text);
     const sourceKey = `${parserKind}:${sourceHash}`;
     parsedSourceKey = sourceKey;
     const memoryCached = parsedApiFilesBySource.get(sourceKey);
     if (memoryCached) {
-      return rememberParsedApiFile(sourceKey, memoryCached);
+      return {
+        file: rememberParsedApiFile(sourceKey, memoryCached),
+        sourceFileNotFound,
+      };
     }
-    const parsed = await getOrSetApiFileCache(
+    const parsedEntry = await getOrSetApiFileCache(
       `struct-content:${sourceKey}`,
-      () =>
-        getOrParseApiFile(sourceKey, async () => {
-          if (text.startsWith('404:') || parserKind === 'unsupported') {
+      async () => ({
+        file: await getOrParseApiFile(sourceKey, async () => {
+          if (sourceFileNotFound || parserKind === 'unsupported') {
             return {
               package: '',
               imports: [],
@@ -123,22 +123,24 @@ export const pullApiFileByUrl = async (
             ? androidApiParser.parseAIDLFile(text)
             : androidApiParser.parseJavaFile(text);
         }),
+        sourceFileNotFound,
+      }),
     );
-    replaceParsedApiFile(sourceKey, parsed);
-    return parsed;
+    replaceParsedApiFile(sourceKey, parsedEntry.file);
+    return parsedEntry;
   }).catch(() => {});
-  if (!file) {
+  if (!entry) {
     return {
       package: '',
       imports: [],
       structs: emptyArray,
     };
   }
-  if (file.structs.length === 0) {
-    const is404 = await check404File(url);
-    if (is404) {
-      notFoundFileMap[filePath] = is404;
-    }
+  const { file, sourceFileNotFound } = entry;
+  if (sourceFileNotFound) {
+    notFoundFileMap[filePath] = true;
+  } else {
+    delete notFoundFileMap[filePath];
   }
   if (parsedSourceKey) {
     replaceParsedApiFile(parsedSourceKey, file);
