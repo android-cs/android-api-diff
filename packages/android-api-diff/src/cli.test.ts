@@ -641,6 +641,7 @@ test('source fetches a raw framework file through the runtime', async () => {
   const url =
     'https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/android-17.0.0_r1/core/java/android/accessibilityservice/AccessibilityButtonController.java';
   let cachedValue: string | undefined;
+  const cacheReads: string[] = [];
   const exitCode = await runCli(
     [
       'source',
@@ -656,7 +657,7 @@ test('source fetches a raw framework file through the runtime', async () => {
         },
         textCache: {
           async get(key) {
-            assert.equal(key, taggedFilePath);
+            cacheReads.push(key);
             return;
           },
           async set(key, value) {
@@ -669,6 +670,10 @@ test('source fetches a raw framework file through the runtime', async () => {
   );
 
   assert.equal(exitCode, 0);
+  assert.deepEqual(cacheReads, [
+    taggedFilePath,
+    `source-not-found:v1:${taggedFilePath}`,
+  ]);
   assert.equal(cachedValue, content);
   assert.equal(output.stderr, '');
   assert.deepEqual(JSON.parse(output.stdout), {

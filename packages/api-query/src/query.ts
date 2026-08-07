@@ -10,6 +10,7 @@ import {
   toAndroidApiResolution,
 } from './resolve.ts';
 import { findStructPathByPath, toAndroidApiResolvedType } from './struct.ts';
+import { loadCachedTaggedSourceText } from './taggedSourceCache.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiMissingReason,
@@ -167,34 +168,17 @@ const normalizeConcurrency = (value: number | undefined): number => {
   return Math.floor(value);
 };
 
-const fetchTaggedFileText = async (
-  runtime: AndroidApiQueryRuntime,
-  taggedFilePath: string,
-  signal?: AbortSignal,
-): Promise<{ text: string; sourceFileNotFound: boolean }> => {
-  const url = getMirrorContentUrl(taggedFilePath);
-  const rawText = await runtime.fetchText(url, signal);
-  return {
-    text: rawText,
-    sourceFileNotFound: rawText.startsWith('404:'),
-  };
-};
-
 const getTaggedFileText = async (
   runtime: AndroidApiQueryRuntime,
   taggedFilePath: string,
   signal?: AbortSignal,
 ): Promise<{ text: string; sourceFileNotFound: boolean }> => {
-  const cached = await runtime.textCache?.get(taggedFilePath);
-  if (cached !== undefined) {
-    return { text: cached, sourceFileNotFound: false };
-  }
-
-  const result = await fetchTaggedFileText(runtime, taggedFilePath, signal);
-  if (!result.sourceFileNotFound) {
-    await runtime.textCache?.set(taggedFilePath, result.text);
-  }
-  return result;
+  return loadCachedTaggedSourceText(
+    runtime,
+    taggedFilePath,
+    getMirrorContentUrl(taggedFilePath),
+    signal,
+  );
 };
 
 const getStructsByTaggedFile = async (

@@ -1,4 +1,5 @@
 import type { AndroidApiQueryRuntime } from './types.ts';
+import { loadCachedTaggedSourceText } from './taggedSourceCache.ts';
 import { getMirrorContentUrl, mirrorContentBaseUrl } from './url.ts';
 
 const androidTagReg = /^android-\d+\.\d+\.\d+_r\d+$/;
@@ -81,15 +82,9 @@ export const loadAndroidSourceFile = async (
   signal?.throwIfAborted();
   const taggedFilePath = `${tag}/${filePath}`;
   const url = getValidatedContentUrl(tag, filePath);
-  let content = await runtime.textCache?.get(taggedFilePath);
-  signal?.throwIfAborted();
-  if (content === undefined) {
-    content = await runtime.fetchText(url, signal);
-    if (!content.startsWith('404:')) {
-      await runtime.textCache?.set(taggedFilePath, content);
-    }
-  }
-  if (content.startsWith('404:')) {
+  const { sourceFileNotFound, text: content } =
+    await loadCachedTaggedSourceText(runtime, taggedFilePath, url, signal);
+  if (sourceFileNotFound) {
     throw new AndroidApiSourceFileNotFoundError(
       `Source file not found: ${taggedFilePath}`,
     );

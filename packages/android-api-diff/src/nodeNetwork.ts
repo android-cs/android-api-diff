@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import pLimit, { type LimitFunction } from 'p-limit';
 import type {
   TextEtagCache,
   TextEtagRepresentation,
@@ -7,6 +8,8 @@ import type {
 
 const NETWORK_RETRY_COUNT = 3;
 const NETWORK_RETRY_BASE_DELAY_MS = 300;
+const INITIAL_REQUEST_CONCURRENCY = 5;
+const MAX_REQUEST_CONCURRENCY = 16;
 const RAW_GITHUB_HOST = 'raw.githubusercontent.com';
 const AOSP_RAW_FRAMEWORK_PATH_REG =
   /^\/msft-mirror-aosp\/platform\.frameworks\.base\/refs\/tags\/android-(\d+)\.(\d+)\.(\d+)_r(\d+)\/(.+)$/;
@@ -153,6 +156,86 @@ const cancelResponseBody = async (response: Response): Promise<void> => {
   }
 };
 
+const isRequestPressureStatus = (status: number): boolean =>
+  status === 408 || status === 425 || status === 429 || status >= 500;
+
+const isHealthyRequestStatus = (status: number): boolean =>
+  status === 200 || status === 304 || status === 404;
+
+export class AdaptiveRequestLimiter {
+  private healthyResponseCount = 0;
+  private readonly limit: LimitFunction;
+  private readonly maxConcurrency: number;
+
+  constructor(
+    initialConcurrency = INITIAL_REQUEST_CONCURRENCY,
+    maxConcurrency = MAX_REQUEST_CONCURRENCY,
+  ) {
+    if (
+      !Number.isSafeInteger(initialConcurrency) ||
+      initialConcurrency < 1 ||
+      !Number.isSafeInteger(maxConcurrency) ||
+      maxConcurrency < initialConcurrency
+    ) {
+      throw new RangeError('Invalid adaptive request concurrency range');
+    }
+    this.limit = pLimit(initialConcurrency);
+    this.maxConcurrency = maxConcurrency;
+  }
+
+  get concurrency(): number {
+    return this.limit.concurrency;
+  }
+
+  run(
+    operation: () => Promise<Response>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const scheduled = this.limit(async () => {
+      signal?.throwIfAborted();
+      try {
+        const response = await operation();
+        this.recordResponse(response.status);
+        return response;
+      } catch (error) {
+        if (!signal?.aborted) this.recordPressure();
+        throw error;
+      }
+    });
+    return waitForPromise(scheduled, signal).catch((error: unknown) => {
+      if (signal?.aborted) {
+        void scheduled.then(cancelResponseBody, () => undefined);
+      }
+      throw error;
+    });
+  }
+
+  private recordResponse(status: number): void {
+    if (isRequestPressureStatus(status)) {
+      this.recordPressure();
+      return;
+    }
+    if (
+      !isHealthyRequestStatus(status) ||
+      this.concurrency >= this.maxConcurrency
+    ) {
+      return;
+    }
+
+    this.healthyResponseCount += 1;
+    if (this.healthyResponseCount < this.concurrency) {
+      return;
+    }
+    this.healthyResponseCount = 0;
+    this.limit.concurrency += 1;
+  }
+
+  private recordPressure(): void {
+    this.healthyResponseCount = 0;
+    this.limit.concurrency = Math.max(1, Math.ceil(this.concurrency / 2));
+  }
+}
+
 export const createFetchTextWithRetry = (
   etagCache: TextEtagCache,
   fetchImplementation: FetchImplementation = globalThis.fetch,
@@ -162,6 +245,7 @@ export const createFetchTextWithRetry = (
     Promise<RequestCandidate | undefined>
   >();
   const representationFlights = new Map<string, Promise<string>>();
+  const requestLimiter = new AdaptiveRequestLimiter();
 
   const consumeRepresentation = async (
     response: Response,
@@ -199,7 +283,7 @@ export const createFetchTextWithRetry = (
     }
   };
 
-  const request = (
+  const request = async (
     url: string,
     candidate: RequestCandidate | undefined,
     signal: AbortSignal | undefined,
@@ -208,7 +292,17 @@ export const createFetchTextWithRetry = (
       'Accept-Encoding': 'gzip',
     };
     if (candidate) headers['If-None-Match'] = candidate.etag;
-    return fetchImplementation(url, { headers, signal });
+    const response = await requestLimiter.run(
+      () => fetchImplementation(url, { headers, signal }),
+      signal,
+    );
+    if (isRequestPressureStatus(response.status)) {
+      await cancelResponseBody(response);
+      throw new Error(
+        `Source request returned transient HTTP ${response.status}: ${url}`,
+      );
+    }
+    return response;
   };
 
   const completeResponse = async (

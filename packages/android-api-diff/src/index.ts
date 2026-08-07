@@ -25,7 +25,9 @@ import {
 } from './installer.ts';
 import { createNodeRuntime, getDefaultCacheDir } from './nodeRuntime.ts';
 
-const QUERY_CONCURRENCY = 5;
+// Cache reads and parsing may enter the task queue at this ceiling, while the
+// runtime's adaptive request limiter ramps network concurrency from 5 to 16.
+const QUERY_CONCURRENCY = 16;
 
 export type CliFormat = 'json' | 'pretty';
 

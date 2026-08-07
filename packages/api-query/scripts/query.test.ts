@@ -16,6 +16,7 @@ import {
   normalizeAndroidSourceFilePath,
 } from '../src/source.ts';
 import { toAndroidApiResolvedType } from '../src/struct.ts';
+import { getSourceNotFoundCacheKey } from '../src/taggedSourceCache.ts';
 import type {
   AndroidApiMemberResult,
   AndroidApiQueryRuntime,
@@ -798,6 +799,73 @@ public interface IExample {
   assert.equal(fetchedUrls.length, 1);
   assert.deepEqual([...cachedTexts.keys()], [cacheKey]);
   assert.equal(cachedTexts.get(cacheKey), source);
+}
+
+{
+  const taggedFilePath =
+    'android-13.0.0_r1/core/java/android/app/IExample.java';
+  const sourceNotFoundCacheKey = getSourceNotFoundCacheKey(taggedFilePath);
+  const cachedTexts = new Map<string, string>();
+  let fetchCount = 0;
+  const textCache = {
+    get: async (key: string) => cachedTexts.get(key),
+    set: async (key: string, value: string) => {
+      cachedTexts.set(key, value);
+    },
+  };
+  const missingSourceRuntime: AndroidApiQueryRuntime = {
+    fetchText: async () => {
+      fetchCount++;
+      return '404: Not Found';
+    },
+    textCache,
+  };
+
+  await assert.rejects(
+    loadAndroidSourceFile(
+      missingSourceRuntime,
+      'android-13.0.0_r1',
+      'core/java/android/app/IExample.java',
+    ),
+    /Source file not found/,
+  );
+  await assert.rejects(
+    loadAndroidSourceFile(
+      missingSourceRuntime,
+      'android-13.0.0_r1',
+      'core/java/android/app/IExample.java',
+    ),
+    /Source file not found/,
+  );
+  assert.equal(fetchCount, 1);
+  assert.deepEqual([...cachedTexts], [[sourceNotFoundCacheKey, '1']]);
+
+  const cachedMissingResult = await queryAndroidApi(
+    {
+      ...missingSourceRuntime,
+      loadAidlJavaFiles: async () => ['core/java/android/app/IExample.java'],
+      loadAndroidVersionList: async () => [
+        {
+          version: '13',
+          alias: 'TIRAMISU',
+          apiVersion: 33,
+          tags: ['android-13.0.0_r1'],
+          futureTags: [],
+        },
+      ],
+    },
+    {
+      apiName: 'IExample.ping',
+      minSdk: 33,
+      concurrency: 1,
+    },
+  );
+  assert.equal(fetchCount, 1);
+  assert.equal(cachedMissingResult.summary.foundTags, 0);
+  assert.equal(
+    cachedMissingResult.ranges[0]?.missingReason,
+    'source-file-not-found',
+  );
 }
 
 {

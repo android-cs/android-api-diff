@@ -329,6 +329,9 @@ importers:
       '@android-cs/api-query':
         specifier: workspace:*
         version: link:../api-query
+      p-limit:
+        specifier: 'catalog:'
+        version: 7.3.0
       skills:
         specifier: 1.5.20
         version: 1.5.20

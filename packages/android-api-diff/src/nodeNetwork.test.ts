@@ -5,7 +5,11 @@ import type {
   TextEtagRepresentation,
   TextEtagTag,
 } from './textEtagCache.ts';
-import { createFetchTextWithRetry, toTextEtagTag } from './nodeNetwork.ts';
+import {
+  AdaptiveRequestLimiter,
+  createFetchTextWithRetry,
+  toTextEtagTag,
+} from './nodeNetwork.ts';
 
 const rawUrl = (tag: string): string =>
   `https://raw.githubusercontent.com/msft-mirror-aosp/platform.frameworks.base/refs/tags/${tag}/core/java/android/app/IExample.aidl`;
@@ -115,6 +119,51 @@ test('extracts ordered Android tag coordinates only from framework raw URLs', ()
     ),
     undefined,
   );
+});
+
+test('adapts request concurrency to healthy responses and pressure', async () => {
+  const limiter = new AdaptiveRequestLimiter(2, 6);
+  assert.equal(limiter.concurrency, 2);
+
+  await limiter.run(async () => new Response('ok', { status: 200 }));
+  assert.equal(limiter.concurrency, 2);
+  await limiter.run(async () => new Response(null, { status: 304 }));
+  assert.equal(limiter.concurrency, 3);
+
+  await Promise.all(
+    Array.from({ length: 3 }, () =>
+      limiter.run(async () => new Response('missing', { status: 404 })),
+    ),
+  );
+  assert.equal(limiter.concurrency, 4);
+
+  await limiter.run(async () => new Response('busy', { status: 429 }));
+  assert.equal(limiter.concurrency, 2);
+  await assert.rejects(
+    limiter.run(async () => {
+      throw new Error('network failed');
+    }),
+    /network failed/,
+  );
+  assert.equal(limiter.concurrency, 1);
+});
+
+test('retries a transient HTTP response after reducing concurrency', async () => {
+  const cache = new MemoryTextEtagCache();
+  let requestCount = 0;
+  const fetchText = createFetchTextWithRetry(cache, (async () => {
+    requestCount++;
+    if (requestCount === 1) {
+      return new Response('busy', { status: 429 });
+    }
+    return new Response('source', {
+      headers: { etag: 'W/"source"' },
+      status: 200,
+    });
+  }) as typeof fetch);
+
+  assert.equal(await fetchText(rawUrl('android-13.0.0_r1')), 'source');
+  assert.equal(requestCount, 2);
 });
 
 test('shares an ETag representation across AOSP and android-cs mirrors', async () => {
