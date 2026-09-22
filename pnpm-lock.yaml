@@ -324,7 +324,7 @@ importers:
         specifier: 'catalog:'
         version: 3.3.5(typescript@6.0.3)
 
-  packages/android-api-diff:
+  android-api-diff:
     dependencies:
       '@android-cs/api-query':
         specifier: workspace:*
@@ -336,13 +336,13 @@ importers:
         specifier: 1.5.20
         version: 1.5.20
 
-  packages/api-parser:
+  api-parser:
     dependencies:
       antlr4:
         specifier: 'catalog:'
         version: 4.13.2
 
-  packages/api-query:
+  api-query:
     dependencies:
       '@android-cs/api-parser':
         specifier: workspace:*
@@ -355,10 +355,10 @@ importers:
     dependencies:
       '@android-cs/api-parser':
         specifier: workspace:*
-        version: link:../packages/api-parser
+        version: link:../api-parser
       '@android-cs/api-query':
         specifier: workspace:*
-        version: link:../packages/api-query
+        version: link:../api-query
 
 packages:
 

@@ -1,5 +1,7 @@
 packages:
-  - packages/*
+  - android-api-diff
+  - api-parser
+  - api-query
   - web
 
 catalog:
