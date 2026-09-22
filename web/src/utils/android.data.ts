@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { loadAndroidVersionList } from '@android-cs/api-query';
+import { loadCachedAndroidVersions } from './androidVersionCache.ts';
 
 const NETWORK_RETRY_COUNT = 3;
 const NETWORK_RETRY_BASE_DELAY_MS = 300;
@@ -34,8 +35,11 @@ const fetchTextWithRetry = async (
     : new Error(`Fetch failed for ${url}`);
 };
 
-const androidVersionList = await loadAndroidVersionList({
-  fetchText: (url) => fetchTextWithRetry(url, { headers: getFetchHeaders(url) }),
-});
+const androidVersionList = await loadCachedAndroidVersions(() =>
+  loadAndroidVersionList({
+    fetchText: (url) =>
+      fetchTextWithRetry(url, { headers: getFetchHeaders(url) }),
+  }),
+);
 
 export default androidVersionList;

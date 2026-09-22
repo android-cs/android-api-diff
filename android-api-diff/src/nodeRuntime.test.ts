@@ -36,6 +36,7 @@ const structValue = {
 const queryValue = {
   apiName: 'android.example.Api',
   normalizedApiName: 'android.example.Api',
+  candidates: [],
   package: 'android.example',
   imports: [],
   summary: {

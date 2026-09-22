@@ -68,15 +68,35 @@ android-api-diff generate "ActivityThread.currentApplication" --min-sdk 28
 android-api-diff preload "ContentObserver()" "IActivityManager.getTasks" --min-sdk 28
 ```
 
-| Command         | Use it for                                                                                   |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| `resolve`       | Resolve an API name to its source file and target kind without fetching historical versions. |
-| `source`        | Fetch one tagged source file through the local ETag and content cache.                       |
-| `query`         | Inspect exact signatures, tag ranges, missing reasons, and source metadata across versions.  |
-| `generate`      | Generate Java hidden-API code. This command performs the cross-version query itself.         |
-| `preload`       | Preload query results for one or more APIs before a larger task.                             |
-| `skill install` | Install the release-matched Codex Skill without changing the CLI.                            |
-| `skill remove`  | Remove the project or global Skill without uninstalling the CLI.                             |
+| Command         | Use it for                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| `resolve`       | List matching sources in recommended order without fetching historical versions.            |
+| `source`        | Fetch one tagged source file through the local ETag and content cache.                      |
+| `query`         | Inspect exact signatures, tag ranges, missing reasons, and source metadata across versions. |
+| `generate`      | Generate Java hidden-API code. This command performs the cross-version query itself.        |
+| `preload`       | Preload query results for one or more APIs before a larger task.                            |
+| `skill install` | Install the release-matched Codex Skill without changing the CLI.                           |
+| `skill remove`  | Remove the project or global Skill without uninstalling the CLI.                            |
+
+`resolve` returns `result.candidates`, ordered with the recommended source first.
+An unresolved name returns an empty array. Matching preserves Java/AIDL and
+reference specificity preferences; equally matching sources put non-test paths
+first, then `core/java/`, then sort by path. An exact source path pins that file.
+
+`query` and `generate` inspect the first candidate by default and include all
+candidate source locations in `result.candidates`. Other candidates are not
+queried across versions until selected. Use `--source-path` to choose a matching
+source while preserving the class or member reference:
+
+```sh
+android-api-diff resolve "IDeviceIdleController"
+android-api-diff query "IDeviceIdleController" --source-path core/java/android/os/IDeviceIdleController.aidl
+android-api-diff generate "IDeviceIdleController.isDeviceIdleMode" --source-path core/java/android/os/IDeviceIdleController.aidl
+```
+
+The path may start with `frameworks/base/`. A path that does not match the API
+fails explicitly. Query caches are separated by the selected source path.
+`--source-path` is supported only by `query` and `generate`.
 
 Use `ClassName()` to inspect all constructors of a class, for example
 `ContentObserver()`. The existing `ClassName#ClassName` form is also accepted.

@@ -69,17 +69,7 @@ export const loadAidlJavaFiles = async (
     aidlJavaFileListUrl,
     signal,
   );
-  const files = text.split('\n').filter(Boolean).sort();
-  const normalFiles: string[] = [];
-  const laterFiles: string[] = [];
-  for (const file of files) {
-    if (file.includes('/test/') || file.includes('/tests/')) {
-      laterFiles.push(file);
-    } else {
-      normalFiles.push(file);
-    }
-  }
-  return normalFiles.concat(laterFiles);
+  return [...new Set(text.split(/\r?\n/).filter(Boolean))].sort();
 };
 
 export const loadAndroidVersionList = async (

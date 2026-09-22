@@ -7,7 +7,7 @@ import {
   loadAidlJavaFiles,
   normalizeAndroidSourceFilePath,
   normalizeAndroidSourceTag,
-  searchFilePathByRefName,
+  searchFilePathsByRefName,
   toAndroidApiResolution,
   type AndroidApiQueryProgress,
   type AndroidApiQueryRuntime,
@@ -45,6 +45,7 @@ export type CliRequest =
     }
   | {
       command: 'query' | 'generate';
+      sourcePath?: string;
       apiName: string;
       minSdk?: number;
       format: CliFormat;
@@ -109,13 +110,14 @@ Inspect Android framework APIs across versions and generate hidden-API Java code
 Usage:
   android-api-diff resolve <api-name> [--format json|pretty]
   android-api-diff source <tag> <file-path> [--format json|pretty]
-  android-api-diff query <api-name> [--min-sdk <api>] [--format json|pretty]
-  android-api-diff generate <api-name> [--min-sdk <api>] [--format json|pretty]
+  android-api-diff query <api-name> [--source-path <path>] [--min-sdk <api>] [--format json|pretty]
+  android-api-diff generate <api-name> [--source-path <path>] [--min-sdk <api>] [--format json|pretty]
   android-api-diff preload <api-name...> [--min-sdk <api>] [--format json|pretty]
   android-api-diff skill install [--skill-scope project|global] [--format json|pretty]
   android-api-diff skill remove [--skill-scope project|global] [--format json|pretty]
 
 Options:
+  --source-path <path> Select a matching source for query or generate
   --min-sdk <api>       Lowest Android API level to inspect
   --format <format>     Output format: json (default) or pretty
   --skill-scope <scope> Skill scope: project (default) or global
@@ -135,7 +137,7 @@ Examples:
 const HELP_BY_TOPIC: Record<string, string> = {
   resolve: `Usage: android-api-diff resolve <api-name> [--format json|pretty]
 
-Resolve an Android API name to its frameworks/base source path without
+List matching frameworks/base sources in recommended order without
 inspecting historical source tags.
 `,
   source: `Usage: android-api-diff source <tag> <file-path> [--format json|pretty]
@@ -143,12 +145,12 @@ inspecting historical source tags.
 Fetch a frameworks/base source file through the local ETag and content cache.
 The path may optionally start with frameworks/base/.
 `,
-  query: `Usage: android-api-diff query <api-name> [--min-sdk <api>] [--format json|pretty]
+  query: `Usage: android-api-diff query <api-name> [--source-path <path>] [--min-sdk <api>] [--format json|pretty]
 
 Inspect cross-version signatures, ranges, missing reasons, and source metadata.
 Range endpoints describe the current query snapshot.
 `,
-  generate: `Usage: android-api-diff generate <api-name> [--min-sdk <api>] [--format json|pretty]
+  generate: `Usage: android-api-diff generate <api-name> [--source-path <path>] [--min-sdk <api>] [--format json|pretty]
 
 Generate Java hidden-API code. This command performs the version query itself.
 `,
@@ -238,6 +240,7 @@ export const parseCliArgs = (args: string[]): CliRequest => {
           version?: boolean;
           format?: string;
           'min-sdk'?: string;
+          'source-path'?: string;
           'skill-scope'?: string;
         };
         positionals: string[];
@@ -253,6 +256,7 @@ export const parseCliArgs = (args: string[]): CliRequest => {
         version: { type: 'boolean', short: 'v' },
         format: { type: 'string' },
         'min-sdk': { type: 'string' },
+        'source-path': { type: 'string' },
         'skill-scope': { type: 'string' },
       },
     });
@@ -273,6 +277,17 @@ export const parseCliArgs = (args: string[]): CliRequest => {
   const command = positionals[0];
   const format = parseFormat(values.format);
   const minSdk = parseMinSdk(values['min-sdk']);
+  if (
+    values['source-path'] !== undefined &&
+    command !== 'query' &&
+    command !== 'generate'
+  ) {
+    usageError('--source-path is only supported by query and generate');
+  }
+  const sourcePath =
+    values['source-path'] === undefined
+      ? undefined
+      : parseSourceFilePath(values['source-path']);
 
   if (command === 'skill') {
     if (positionals.length === 1) {
@@ -329,6 +344,7 @@ export const parseCliArgs = (args: string[]): CliRequest => {
     return {
       command,
       apiName: requireApiName(positionals),
+      ...(sourcePath === undefined ? {} : { sourcePath }),
       ...(minSdk === undefined ? {} : { minSdk }),
       format,
     };
@@ -411,10 +427,9 @@ const executeRequest = async (
     const aidlJavaFiles = await loadAidlJavaFiles(runtime, signal);
     const result = {
       apiName: request.apiName,
-      result:
-        toAndroidApiResolution(
-          searchFilePathByRefName(request.apiName, aidlJavaFiles),
-        ) ?? null,
+      candidates: searchFilePathsByRefName(request.apiName, aidlJavaFiles).map(
+        (match) => toAndroidApiResolution(match)!,
+      ),
     };
     progress.finish(`${request.apiName}: resolved`);
     return result;
@@ -437,6 +452,7 @@ const executeRequest = async (
     progress.update(`${request.apiName}: resolving and checking cache`);
     const options = {
       apiName: request.apiName,
+      sourcePath: request.sourcePath,
       concurrency: QUERY_CONCURRENCY,
       ...(request.minSdk === undefined ? {} : { minSdk: request.minSdk }),
       signal,

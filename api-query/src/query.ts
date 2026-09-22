@@ -1,12 +1,11 @@
 import type { ApiFile, ClassMember } from '@android-cs/api-parser';
-import { parseAIDLFile, parseJavaFile } from '@android-cs/api-parser';
 import pLimit from 'p-limit';
 import { DEFAULT_MIN_SDK } from './constants.ts';
 import { loadAidlJavaFiles, loadAndroidVersionList } from './data.ts';
 import {
   isConstructorReference,
   redirectAndroidSourceFilePath,
-  searchFilePathByRefName,
+  searchFilePathsByRefName,
   toAndroidApiResolution,
 } from './resolve.ts';
 import { findStructPathByPath, toAndroidApiResolvedType } from './struct.ts';
@@ -25,10 +24,11 @@ import type {
   AndroidVersionItem,
   QueryAndroidApiOptions,
 } from './types.ts';
+import { normalizeAndroidSourceFilePath } from './source.ts';
 import { getMirrorContentUrl } from './url.ts';
 
 export const STRUCT_CACHE_VERSION = 'struct:v11';
-export const QUERY_CACHE_VERSION = 'query:v26';
+export const QUERY_CACHE_VERSION = 'query:v27';
 const DEFAULT_CONCURRENCY = 3;
 const MAX_STRUCT_CONTENT_ENTRIES = 256;
 
@@ -126,8 +126,10 @@ const getStructsByContent = async (
       structs: [],
     };
     if (!sourceFileNotFound && contentKey.startsWith('aidl:')) {
+      const { parseAIDLFile } = await import('@android-cs/api-parser');
       file = parseAIDLFile(text);
     } else if (!sourceFileNotFound && contentKey.startsWith('java:')) {
+      const { parseJavaFile } = await import('@android-cs/api-parser');
       file = parseJavaFile(text);
     }
     const parsed: AndroidApiStructCacheEntry = {
@@ -573,6 +575,7 @@ const getQueryCacheKey = (options: QueryAndroidApiOptions): string => {
     QUERY_CACHE_VERSION,
     options.apiName.trim(),
     options.minSdk ?? '',
+    options.sourcePath ?? '',
   ].join(':');
 };
 
@@ -582,6 +585,11 @@ export const queryAndroidApi = async (
 ): Promise<AndroidApiQueryResult> => {
   options.signal?.throwIfAborted();
   const normalizedApiName = options.apiName.trim();
+  if (options.sourcePath !== undefined) {
+    const sourcePath = normalizeAndroidSourceFilePath(options.sourcePath);
+    if (!sourcePath) throw new Error('Invalid source path');
+    options = { ...options, sourcePath };
+  }
   const cacheKey = getQueryCacheKey({
     ...options,
     apiName: normalizedApiName,
@@ -592,11 +600,20 @@ export const queryAndroidApi = async (
 
   const aidlJavaFiles = await loadAidlJavaFiles(runtime, options.signal);
   options.signal?.throwIfAborted();
-  const search = searchFilePathByRefName(normalizedApiName, aidlJavaFiles);
+  const matches = searchFilePathsByRefName(normalizedApiName, aidlJavaFiles);
+  const candidates = matches.map((match) => toAndroidApiResolution(match)!);
+  const search =
+    options.sourcePath === undefined
+      ? matches[0]
+      : matches.find((match) => match.filePath === options.sourcePath);
+  if (options.sourcePath !== undefined && !search) {
+    throw new Error(`Source path does not match API: ${options.sourcePath}`);
+  }
   if (!search) {
     const result: AndroidApiQueryResult = {
       apiName: options.apiName,
       normalizedApiName,
+      candidates,
       package: '',
       imports: [],
       summary: {
@@ -731,6 +748,7 @@ export const queryAndroidApi = async (
   const result: AndroidApiQueryResult = {
     apiName: options.apiName,
     normalizedApiName,
+    candidates,
     package: versions.findLast((version) => version.package)?.package ?? '',
     imports,
     source: resolution.source,

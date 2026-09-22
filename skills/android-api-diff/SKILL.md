@@ -18,7 +18,7 @@ output so results remain machine-readable.
   target kind.
 - Run `source` when the user wants the complete content of a known source path
   at an exact Android release tag. If only an API name is known, run `resolve`
-  first and use its `source.path`.
+  first and use the chosen `result.candidates[].source.path`.
 - Run `preload` only when the user explicitly asks to preload several APIs.
 
 Always quote API names because constructors and member references can contain
@@ -39,6 +39,13 @@ then uses its built-in default.
 
 Treat exit code `0` together with top-level `ok: true` as success. Read the
 operation result from the top-level `result` field.
+
+`resolve` returns `result.candidates` in recommended order, or an empty array
+when no source matches. `query` and `generate` include the same candidate list
+and inspect the recommended source by default. When the user specifies another
+matching source, pass `--source-path <path>` to `query` or `generate`; retain the
+original API reference to preserve its member or constructor target. Candidate
+metadata alone does not prove that a member exists in a particular version.
 
 For `query`, describe range endpoints as the first or last tag checked in the
 current snapshot. A `last-checked` endpoint is not a promise that no later

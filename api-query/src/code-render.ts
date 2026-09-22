@@ -1675,6 +1675,7 @@ export const renderAndroidApiCodeWithMemberCode = (
     normalizedApiName: result.normalizedApiName,
     package: result.package,
     imports: result.imports,
+    candidates: result.candidates,
     ...(result.source ? { source: result.source } : {}),
     ...(result.resolvedTarget ? { resolvedTarget: result.resolvedTarget } : {}),
     summary: {

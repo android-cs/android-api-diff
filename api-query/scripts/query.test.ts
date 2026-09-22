@@ -8,7 +8,7 @@ import {
 } from '../src/query.ts';
 import {
   redirectAndroidSourceFilePath,
-  searchFilePathByRefName,
+  searchFilePathsByRefName,
   toAndroidApiResolution,
 } from '../src/resolve.ts';
 import {
@@ -155,7 +155,7 @@ public interface IExample {
   const sourcePath =
     'core/java/android/accessibilityservice/AccessibilityButtonController.java';
   const resolution = toAndroidApiResolution(
-    searchFilePathByRefName('AccessibilityButtonController', [sourcePath]),
+    searchFilePathsByRefName('AccessibilityButtonController', [sourcePath])[0],
   );
 
   assert.deepEqual(resolution?.source, {
@@ -285,7 +285,8 @@ public interface IExample {
     'core/java/android/database/ContentObserver.java',
     'opengl/java/android/opengl/GLU.java',
   ];
-  const resolve = (apiName: string) => searchFilePathByRefName(apiName, files);
+  const resolve = (apiName: string) =>
+    searchFilePathsByRefName(apiName, files)[0];
 
   assert.equal(resolve('ContentObserver')?.targetKind, 'class');
   assert.deepEqual(resolve('ContentObserver')?.targetPaths, [
@@ -1106,6 +1107,145 @@ public final class ServiceManager {
     query,
     (error: unknown) =>
       error instanceof DOMException && error.name === 'AbortError',
+  );
+}
+
+// Source ambiguity: deterministic ranking, all targets, and exact source selection.
+{
+  const core = 'core/java/android/os/IDeviceIdleController.aidl';
+  const apex =
+    'apex/jobscheduler/framework/java/android/os/IDeviceIdleController.aidl';
+  const test = 'core/java/tests/android/os/IDeviceIdleController.aidl';
+  const rootTest = 'test/android/os/IDeviceIdleController.aidl';
+  const java = 'core/java/android/os/IDeviceIdleController.java';
+  const files = [apex, rootTest, test, core, core, java];
+  const paths = (ref: string, input = files) =>
+    searchFilePathsByRefName(ref, input).map((match) => match.filePath);
+  assert.deepEqual(paths('IDeviceIdleController'), [
+    core,
+    apex,
+    test,
+    rootTest,
+    java,
+  ]);
+  assert.deepEqual(
+    paths('IDeviceIdleController', [...files].reverse()),
+    paths('IDeviceIdleController'),
+  );
+  assert.deepEqual(
+    paths('android.os.IDeviceIdleController'),
+    paths('IDeviceIdleController'),
+  );
+  assert.deepEqual(paths('IDeviceIdleController.aidl'), [
+    core,
+    apex,
+    test,
+    rootTest,
+  ]);
+  assert.deepEqual(paths(`frameworks/base/${apex}`), [apex]);
+  assert.deepEqual(paths(test), [test]);
+  assert.deepEqual(paths('missing'), []);
+  for (const ref of [
+    'IDeviceIdleController#ping',
+    'IDeviceIdleController.ping()',
+  ]) {
+    const matches = searchFilePathsByRefName(ref, files);
+    assert.equal(matches.length, 5);
+    assert.ok(
+      matches.every(
+        (match) =>
+          match.targetKind === 'member' &&
+          match.targetPaths.join('.') === 'IDeviceIdleController.ping',
+      ),
+    );
+  }
+  const nestedFiles = ['apex/foo/Outer.java', 'core/java/Outer.java'];
+  for (const ref of ['Outer.Inner()', 'Outer$Inner#Inner']) {
+    assert.deepEqual(
+      searchFilePathsByRefName(ref, nestedFiles).map(
+        (match) => match.targetPaths,
+      ),
+      [
+        ['Outer', 'Inner', 'Inner'],
+        ['Outer', 'Inner', 'Inner'],
+      ],
+    );
+  }
+  assert.deepEqual(
+    searchFilePathsByRefName('OuterHidden.Inner', nestedFiles).map(
+      (match) => match.filePath,
+    ),
+    [...nestedFiles].reverse(),
+  );
+
+  const fetched: string[] = [];
+  const cache = new Map<string, Awaited<ReturnType<typeof queryAndroidApi>>>();
+  const multiRuntime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => [apex, core],
+    loadAndroidVersionList: async () => [
+      {
+        version: '14',
+        alias: 'U',
+        apiVersion: 34,
+        tags: ['android-14.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    queryCache: {
+      get: async (key) => cache.get(key),
+      set: async (key, value) => {
+        cache.set(key, value);
+      },
+    },
+    fetchText: async (url) => {
+      fetched.push(url);
+      return `package android.os; interface IDeviceIdleController { ${url.includes('/apex/') ? 'int' : 'void'} ping(); }`;
+    },
+  };
+  const first = await queryAndroidApi(multiRuntime, {
+    apiName: 'IDeviceIdleController.ping',
+  });
+  assert.equal(first.source?.path, core);
+  assert.deepEqual(
+    first.candidates.map((candidate) => candidate.source.path),
+    [core, apex],
+  );
+  assert.equal(fetched.length, 1);
+  const other = await queryAndroidApi(multiRuntime, {
+    apiName: 'IDeviceIdleController.ping',
+    sourcePath: apex,
+  });
+  assert.equal(other.source?.path, apex);
+  assert.notEqual(first.overloads[0]?.signature, other.overloads[0]?.signature);
+  assert.equal(fetched.length, 2);
+  assert.strictEqual(
+    await queryAndroidApi(multiRuntime, {
+      apiName: 'IDeviceIdleController.ping',
+      sourcePath: `frameworks/base/${apex}`,
+    }),
+    other,
+  );
+  assert.strictEqual(
+    await queryAndroidApi(multiRuntime, {
+      apiName: 'IDeviceIdleController.ping',
+    }),
+    first,
+  );
+  assert.equal(fetched.length, 2);
+  assert.deepEqual(renderAndroidApiCode(other).candidates, other.candidates);
+  await assert.rejects(
+    queryAndroidApi(multiRuntime, {
+      apiName: 'IDeviceIdleController',
+      sourcePath: 'core/java/Missing.aidl',
+    }),
+    /does not match/,
+  );
+  await assert.rejects(
+    queryAndroidApi(multiRuntime, {
+      apiName: 'IDeviceIdleController',
+      sourcePath: '../outside.aidl',
+    }),
+    /Invalid source path/,
   );
 }
 

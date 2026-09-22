@@ -2,7 +2,7 @@ import { getOrSetApiFileCache, persistentFetch } from '@/utils/cache';
 import type { ApiFile } from '@android-cs/api-parser';
 import {
   loadAidlJavaFiles,
-  searchFilePathByRefName as searchFilePathByRefNameCore,
+  searchFilePathsByRefName as searchFilePathsByRefNameCore,
 } from '@android-cs/api-query';
 import pLimit from 'p-limit';
 import { shallowReactive, shallowRef } from 'vue';
@@ -10,7 +10,6 @@ import { emptyArray } from './utils/constants.ts';
 import { sha256String } from './utils/cache/compression.ts';
 import { updateStorageEstimate } from './utils/storageEstimate.ts';
 import { getMirrorContentUrl } from './utils/url.ts';
-import defer * as androidApiParser from '@android-cs/api-parser';
 
 export {
   estimateDesc,
@@ -18,7 +17,9 @@ export {
 } from './utils/storageEstimate.ts';
 
 // preload parser
-setTimeout(async () => androidApiParser, 3000);
+setTimeout(() => {
+  void import('@android-cs/api-parser').catch(() => {});
+}, 3000);
 
 export const fileApiMap = shallowReactive<Record<string, ApiFile>>({});
 
@@ -119,6 +120,7 @@ export const pullApiFileByUrl = async (
               structs: [],
             };
           }
+          const androidApiParser = await import('@android-cs/api-parser');
           return parserKind === 'aidl'
             ? androidApiParser.parseAIDLFile(text)
             : androidApiParser.parseJavaFile(text);
@@ -163,8 +165,6 @@ setTimeout(async () => {
 // IActivityManager.
 // android.app.IActivityManager
 
-export const searchFilePathByRefName = (
-  name: string,
-): SearchFromData | undefined => {
-  return searchFilePathByRefNameCore(name, aidlJavaFiles.value);
+export const searchFilePathsByRefName = (name: string): SearchFromData[] => {
+  return searchFilePathsByRefNameCore(name, aidlJavaFiles.value);
 };

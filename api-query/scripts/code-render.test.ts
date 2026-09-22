@@ -122,6 +122,7 @@ const baseResult = (
   return {
     apiName,
     normalizedApiName: apiName,
+    candidates: [],
     package: '',
     imports,
     source: {

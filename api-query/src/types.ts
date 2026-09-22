@@ -88,6 +88,8 @@ export interface AndroidApiQueryRuntime {
 
 export interface QueryAndroidApiOptions {
   apiName: string;
+  /** Select an exact matching source; otherwise inspect the first candidate. */
+  sourcePath?: string;
   minSdk?: number;
   concurrency?: number;
   signal?: AbortSignal;
@@ -177,6 +179,8 @@ export interface AndroidApiOverloadResult {
 export interface AndroidApiQueryResult {
   apiName: string;
   normalizedApiName: string;
+  /** All matching sources in recommended order; metadata does not imply historical availability. */
+  candidates: AndroidApiResolution[];
   package: string;
   imports: string[];
   source?: AndroidApiSourceLocation;
@@ -206,6 +210,8 @@ export interface AndroidApiCodeDeclaration {
 export interface AndroidApiCodeResult {
   apiName: string;
   normalizedApiName: string;
+  /** All matching sources in recommended order; metadata does not imply historical availability. */
+  candidates: AndroidApiResolution[];
   package: string;
   imports: string[];
   source?: AndroidApiSourceLocation;

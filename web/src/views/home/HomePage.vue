@@ -12,6 +12,7 @@ import {
   findStructPathByPath,
   getMirrorSourceUrl,
   toAndroidApiResolvedType,
+  toAndroidApiResolution,
 } from '@android-cs/api-query';
 import {
   renderAndroidApiCodeWithMemberCode,
@@ -28,6 +29,7 @@ import DiffResultList from './DiffResultList.vue';
 import { skipNextAutoDiffOnReload, useSharedHomeState } from './homeState.ts';
 import MinSdkSelect from './MinSdkSelect.vue';
 import SourceLinkTargetSelect from './SourceLinkTargetSelect.vue';
+import SourceCandidatePopover from './SourceCandidatePopover.vue';
 
 const title = document.title;
 const {
@@ -43,6 +45,7 @@ const {
   androidVersionList,
   diffResultList,
   searchFromData,
+  sourceCandidates,
 } = useSharedHomeState();
 
 const isSearchInputFocused = ref(false);
@@ -174,6 +177,9 @@ const codeQueryResult = computed<AndroidApiQueryResult>(() => {
   return {
     apiName: searchRef.value,
     normalizedApiName: searchRef.value.trim(),
+    candidates: sourceCandidates.value.map(
+      (candidate) => toAndroidApiResolution(candidate)!,
+    ),
     package:
       diffResultList.value.findLast((item) => item.file.package)?.file
         .package ?? '',
@@ -373,6 +379,7 @@ const handleClearLocalCache = async () => {
           type="text"
           v-model="searchRef"
           placeholder="Class, Class(), or Class.member"
+          style="padding-right: 40px"
           outline-none
           transition-colors
           b-1px
@@ -390,6 +397,7 @@ const handleClearLocalCache = async () => {
           @blur="handleSearchInputBlur"
           @keyup.enter="handleRunDiff()"
         />
+        <SourceCandidatePopover />
         <div
           v-if="showSearchHistory"
           absolute

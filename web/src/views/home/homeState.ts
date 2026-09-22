@@ -3,7 +3,7 @@ import {
   fileApiMap,
   notFoundFileMap,
   pullApiFileByUrl,
-  searchFilePathByRefName,
+  searchFilePathsByRefName,
 } from '@/store';
 import { colors, findStructByPath, useEqualComputed, useTask } from '@/utils';
 import androidVersionList from '@/utils/android.data';
@@ -219,11 +219,28 @@ export const useSharedHomeState = createSharedComposable(() => {
   );
 
   const setSearchRef = async (v: string) => {
-    if (v) {
-      await router.replace('/i/' + v);
-    } else {
-      await router.replace('/');
+    const next = router.resolve(v ? '/i/' + v : '/');
+    const nextRef = `${getPathMatchSearchRef(next.params.pathMatch)}${next.hash}`;
+    const currentPaths = new Set(
+      sourceCandidates.value.map((item) => item.filePath),
+    );
+    const nextPaths = new Set(
+      searchFilePathsByRefName(nextRef).map((item) => item.filePath),
+    );
+    const pathsChanged =
+      currentPaths.size !== nextPaths.size ||
+      [...currentPaths].some((path) => !nextPaths.has(path));
+    const query = { ...route.query };
+    if (
+      pathsChanged &&
+      typeof query.source === 'string' &&
+      !nextPaths.has(query.source)
+    ) {
+      delete query.source;
     }
+    // Update the reference and source together so the diff never sees an
+    // intermediate route with the selected source accidentally removed.
+    await router.replace({ path: next.path, hash: next.hash, query });
   };
 
   const searchRef = computed({
@@ -254,15 +271,33 @@ export const useSharedHomeState = createSharedComposable(() => {
     targetKind: 'file',
   };
 
+  const sourceCandidates = useEqualComputed(() =>
+    searchFilePathsByRefName(searchRef.value),
+  );
+  const selectedSourcePath = computed(() =>
+    typeof route.query.source === 'string' ? route.query.source : undefined,
+  );
   const searchFromData = useEqualComputed<SearchFromData>(() => {
-    return searchFilePathByRefName(searchRef.value) ?? emptySearchFromData;
+    return (
+      (selectedSourcePath.value === undefined
+        ? sourceCandidates.value[0]
+        : sourceCandidates.value.find(
+            (candidate) => candidate.filePath === selectedSourcePath.value,
+          )) ?? emptySearchFromData
+    );
   });
+  const sourceSelectionInvalid = computed(
+    () =>
+      !!selectedSourcePath.value &&
+      sourceCandidates.value.length > 0 &&
+      !searchFromData.value.filePath,
+  );
   const isValidSearchRef = computed(() => !!searchFromData.value.targetUrl);
   const selectedOverloadKey = ref<string | null>(null);
 
   const saveValidSearchHistory = (value = searchRef.value) => {
     const ref = value.trim();
-    if (!ref || !searchFilePathByRefName(ref)?.targetUrl) return;
+    if (!ref || !searchFilePathsByRefName(ref).length) return;
     searchHistory.value = [
       ref,
       ...searchHistory.value.filter((item) => item !== ref),
@@ -526,8 +561,14 @@ export const useSharedHomeState = createSharedComposable(() => {
     }
     if (!urlBuilder.value) return;
     const versionList = filteredAndroidVersionList.value;
+    const sourcePath = searchFromData.value.filePath;
+    if (!sourcePath) return;
     const pullSourceCandidate = async (tag: string) => {
-      await pullApiFileByUrl(`${tag}/${getSourceFilePath(tag)}`, s);
+      const path = redirectAndroidSourceFilePath(
+        sourcePath,
+        apiVersionByTag.value.get(tag) ?? 0,
+      );
+      await pullApiFileByUrl(`${tag}/${path}`, s);
     };
     // 数组作为矩阵列，按行遍历，优先访问每个大版本的头部的小版本
     const maxRows = versionList.reduce((m, v) => Math.max(m, v.tags.length), 0);
@@ -549,6 +590,22 @@ export const useSharedHomeState = createSharedComposable(() => {
       await awaitTempList();
     }
   });
+  watch(
+    searchFromData,
+    (_next, previous) => {
+      if (previous.filePath) stopDiff();
+    },
+    { flush: 'sync' },
+  );
+  const selectSourcePath = async (sourcePath: string) => {
+    if (handleDiff.loading) return;
+    await router.replace({
+      path: route.path,
+      hash: route.hash,
+      query: { ...route.query, source: sourcePath },
+    });
+    await handleDiff.invoke();
+  };
   if (!consumeSkipNextAutoDiff()) {
     setTimeout(handleDiff.invoke);
   }
@@ -583,6 +640,9 @@ export const useSharedHomeState = createSharedComposable(() => {
   });
 
   return {
+    sourceCandidates,
+    sourceSelectionInvalid,
+    selectSourcePath,
     searchFromData,
     isCanParsedUrl,
     diffResultList,

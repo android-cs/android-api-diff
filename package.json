@@ -31,7 +31,6 @@
     "typescript": "catalog:",
     "unocss": "catalog:",
     "unplugin-data": "catalog:",
-    "unplugin-import-defer": "catalog:",
     "vite": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:",

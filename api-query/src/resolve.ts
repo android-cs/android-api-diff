@@ -67,35 +67,46 @@ const isLikelyMemberName = (name: string): boolean => {
   return /^[a-z_]/.test(name) || /^[A-Z0-9_]+$/.test(name);
 };
 
-export const searchFilePathByName = (
+const isTestPath = (path: string): boolean =>
+  /(^|\/)(test|tests)(\/|$)/.test(path);
+
+export const compareAndroidSourcePaths = (a: string, b: string): number =>
+  Number(isTestPath(a)) - Number(isTestPath(b)) ||
+  Number(!a.startsWith('core/java/')) - Number(!b.startsWith('core/java/')) ||
+  (a < b ? -1 : a > b ? 1 : 0);
+
+export const searchFilePathsByName = (
   name: string,
   aidlJavaFiles: readonly string[],
-): string | undefined => {
+): string[] => {
   name = fixFilePath(name.trim()).replaceAll('\\', '/').replace(/^\/+/, '');
   if (name.startsWith('frameworks/base/')) {
     name = name.substring('frameworks/base/'.length);
   }
-  if (!name) return;
-  if (name.endsWith('.java') || name.endsWith('.aidl')) {
-    const a = `/${name}`;
-    return aidlJavaFiles.find((v) => v === name || v.endsWith(a));
+  if (!name) return [];
+  const files = [...new Set(aidlJavaFiles)];
+  if (sourceFileReg.test(name)) {
+    // An exact repository-relative path pins the source, even in a test directory.
+    if (files.includes(name)) return [name];
+    return files
+      .filter((path) => path.endsWith(`/${name}`))
+      .sort(compareAndroidSourcePaths);
   }
-  const perfAidl = aidlFileNameRegs.some((reg) => name.match(reg));
+  const preferredExtension = aidlFileNameRegs.some((reg) => reg.test(name))
+    ? 'aidl'
+    : 'java';
   name = name.replaceAll('.', '/');
-  let a = '';
-  if (perfAidl) {
-    a = `/${name}.aidl`;
-  } else {
-    a = `/${name}.java`;
-  }
-  const ra = aidlJavaFiles.find((v) => v.endsWith(a));
-  if (ra) return ra;
-  if (!perfAidl) {
-    a = `/${name}.aidl`;
-  } else {
-    a = `/${name}.java`;
-  }
-  return aidlJavaFiles.find((v) => v.endsWith(a));
+  return files
+    .filter(
+      (path) =>
+        path.endsWith(`/${name}.java`) || path.endsWith(`/${name}.aidl`),
+    )
+    .sort(
+      (a, b) =>
+        Number(!a.endsWith(`.${preferredExtension}`)) -
+          Number(!b.endsWith(`.${preferredExtension}`)) ||
+        compareAndroidSourcePaths(a, b),
+    );
 };
 
 const getConstructorShorthandClassName = (
@@ -109,7 +120,7 @@ const getConstructorShorthandClassName = (
   if (!simpleName) return;
   if (
     isLikelyMemberName(simpleName) &&
-    !searchFilePathByName(className, aidlJavaFiles)
+    !searchFilePathsByName(className, aidlJavaFiles).length
   ) {
     return;
   }
@@ -148,16 +159,16 @@ export const resolveFileTargets = (
     const fileRef = parts.slice(0, i).join('.');
     const suffix = parts.slice(i);
     for (const mayFileRef of getMayFileRefNames(fileRef)) {
-      const filePath = searchFilePathByName(mayFileRef, aidlJavaFiles);
-      if (!filePath) continue;
-      const targetPaths = [getFileStructName(filePath), ...suffix];
-      const key = `${filePath}\n${targetPaths.join('.')}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      res.push({
-        filePath,
-        targetPaths,
-      });
+      for (const filePath of searchFilePathsByName(mayFileRef, aidlJavaFiles)) {
+        const targetPaths = [getFileStructName(filePath), ...suffix];
+        const key = `${filePath}\n${targetPaths.join('.')}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        res.push({
+          filePath,
+          targetPaths,
+        });
+      }
     }
   }
   return res;
@@ -193,19 +204,18 @@ export const toAndroidApiResolution = (
   };
 };
 
-export const searchFilePathByRefName = (
+export const searchFilePathsByRefName = (
   name: string,
   aidlJavaFiles: readonly string[],
-): SearchFromData | undefined => {
+): SearchFromData[] => {
   name = name.trim();
-  if (!name) return;
+  if (!name) return [];
 
   const fileName = fixFilePath(name);
   if (sourceFileReg.test(fileName)) {
-    const filePath = searchFilePathByName(fileName, aidlJavaFiles);
-    if (filePath) {
-      return createSearchFromData(filePath, [], 'file');
-    }
+    return searchFilePathsByName(fileName, aidlJavaFiles).map((filePath) =>
+      createSearchFromData(filePath, [], 'file'),
+    );
   }
 
   const constructorClassName = getConstructorShorthandClassName(
@@ -213,18 +223,14 @@ export const searchFilePathByRefName = (
     aidlJavaFiles,
   );
   if (constructorClassName) {
-    for (const target of resolveFileTargets(
-      constructorClassName,
-      aidlJavaFiles,
-    )) {
-      const constructorName = target.targetPaths.at(-1);
-      if (!constructorName) continue;
-      return createSearchFromData(
-        target.filePath,
-        [...target.targetPaths, constructorName],
-        'member',
-      );
-    }
+    return resolveFileTargets(constructorClassName, aidlJavaFiles).map(
+      (target) =>
+        createSearchFromData(
+          target.filePath,
+          [...target.targetPaths, target.targetPaths.at(-1)!],
+          'member',
+        ),
+    );
   }
 
   let className = name;
@@ -242,18 +248,11 @@ export const searchFilePathByRefName = (
     }
   }
 
-  if (propName) {
-    for (const target of resolveFileTargets(className, aidlJavaFiles)) {
-      return createSearchFromData(
-        target.filePath,
-        [...target.targetPaths, propName],
-        'member',
-      );
-    }
-    return;
-  }
-
-  for (const target of resolveFileTargets(className, aidlJavaFiles)) {
-    return createSearchFromData(target.filePath, target.targetPaths, 'class');
-  }
+  return resolveFileTargets(className, aidlJavaFiles).map((target) =>
+    createSearchFromData(
+      target.filePath,
+      propName ? [...target.targetPaths, propName] : target.targetPaths,
+      propName ? 'member' : 'class',
+    ),
+  );
 };

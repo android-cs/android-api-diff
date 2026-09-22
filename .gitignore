@@ -27,7 +27,8 @@ coverage
 *.sln
 *.sw?
 .env
-.cache
+# Local build/data caches
+.cache/
 .tmp-mcp-screens
 
 .antlr

@@ -4,7 +4,7 @@ import androidVersionList from '@/utils/android.data';
 import {
   loadAndroidSourceFile,
   loadAidlJavaFiles,
-  searchFilePathByRefName,
+  searchFilePathsByRefName,
   toAndroidApiResolution,
   type AndroidApiQueryRuntime,
   type QueryAndroidApiOptions,
@@ -26,7 +26,7 @@ const commands: CommandOption[] = [
     name: 'resolve',
     label: 'Resolve',
     description:
-      'Resolve an API name to its file, target path, and target kind.',
+      'List matching sources in recommended order with target paths and kinds.',
   },
   {
     name: 'query',
@@ -60,6 +60,7 @@ const sourceTag = ref('android-17.0.0_r1');
 const sourcePath = ref(
   'core/java/android/accessibilityservice/AccessibilityButtonController.java',
 );
+const querySourcePath = ref('');
 const minSdk = ref<string | number>('35');
 const loading = ref(false);
 const errorText = ref('');
@@ -96,6 +97,10 @@ const getVersionOptions = () => {
 const getQueryOptions = (name = apiName.value): QueryAndroidApiOptions => {
   return {
     apiName: name.trim(),
+    ...(activeCommandName.value === 'query' ||
+    activeCommandName.value === 'generate'
+      ? { sourcePath: querySourcePath.value.trim() || undefined }
+      : {}),
     ...getVersionOptions(),
     concurrency: 5,
   };
@@ -126,7 +131,10 @@ const commandText = computed(() => {
     const names = getPreloadApiNames().map(quoteArgument).join(' ');
     return `android-api-diff preload ${names}${minSdkArgument.value}`;
   }
-  return `android-api-diff ${activeCommandName.value} ${quoteArgument(apiName.value)}${minSdkArgument.value}`;
+  const sourceArgument = querySourcePath.value.trim()
+    ? ` --source-path ${quoteArgument(querySourcePath.value)}`
+    : '';
+  return `android-api-diff ${activeCommandName.value} ${quoteArgument(apiName.value)}${minSdkArgument.value}${sourceArgument}`;
 });
 
 const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
@@ -144,8 +152,9 @@ const runResolvePreview = async () => {
   const files = await loadAidlJavaFiles(browserRuntime);
   return {
     apiName: name,
-    result:
-      toAndroidApiResolution(searchFilePathByRefName(name, files)) ?? null,
+    candidates: searchFilePathsByRefName(name, files).map(
+      (match) => toAndroidApiResolution(match)!,
+    ),
   };
 };
 
@@ -466,6 +475,33 @@ const runActiveCommand = async () => {
                   outline-none
                   focus="b-gray-500"
                 ></textarea>
+              </label>
+
+              <label
+                v-if="
+                  activeCommandName === 'query' ||
+                  activeCommandName === 'generate'
+                "
+                flex
+                flex-col
+                gap-6px
+              >
+                <span text-12px uppercase tracking-1px text-gray-500
+                  >Source path (optional)</span
+                >
+                <input
+                  v-model="querySourcePath"
+                  type="text"
+                  placeholder="Recommended source by default"
+                  b-1px
+                  b-solid
+                  b-gray-200
+                  rounded-4px
+                  px-8px
+                  py-6px
+                  outline-none
+                  focus="b-gray-500"
+                />
               </label>
 
               <label

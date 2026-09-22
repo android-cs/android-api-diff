@@ -1,3 +1,4 @@
+import type { AndroidApiQueryRuntime } from '@android-cs/api-query';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
@@ -771,7 +772,7 @@ test('resolve keeps an unresolved result explicit and machine-readable', async (
     command: 'resolve',
     result: {
       apiName: 'DefinitelyMissingApi',
-      result: null,
+      candidates: [],
     },
   });
 });
@@ -839,4 +840,65 @@ test('entrypoint help and version have clean process behavior', () => {
   assert.equal(version.status, 0);
   assert.match(version.stdout, /^\d+\.\d+\.\d+\n$/);
   assert.equal(version.stderr, '');
+});
+
+test('resolve lists all sources and source-path selects query and generation', async () => {
+  const core = 'core/java/android/os/IDeviceIdleController.aidl';
+  const apex =
+    'apex/jobscheduler/framework/java/android/os/IDeviceIdleController.aidl';
+  const runtime: AndroidApiQueryRuntime = {
+    loadAidlJavaFiles: async () => [apex, core],
+    loadAndroidVersionList: async () => [
+      {
+        version: '14',
+        alias: 'U',
+        apiVersion: 34,
+        tags: ['android-14.0.0_r1'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async (url) => {
+      assert.ok(url.endsWith(apex));
+      return 'package android.os; interface IDeviceIdleController { void ping(); }';
+    },
+  };
+  const output = createOutput();
+  assert.equal(
+    await runCli(['resolve', 'IDeviceIdleController'], {
+      io: output.io,
+      runtime,
+    }),
+    0,
+  );
+  assert.deepEqual(
+    JSON.parse(output.stdout).result.candidates.map(
+      (item: { source: { path: string } }) => item.source.path,
+    ),
+    [core, apex],
+  );
+  for (const command of ['query', 'generate']) {
+    const selected = createOutput();
+    assert.equal(
+      await runCli(
+        [
+          command,
+          'IDeviceIdleController.ping',
+          '--source-path',
+          `frameworks/base/${apex}`,
+        ],
+        { io: selected.io, runtime },
+      ),
+      0,
+    );
+    const result = JSON.parse(selected.stdout).result;
+    assert.equal(result.source.path, apex);
+    assert.equal(result.candidates.length, 2);
+  }
+  for (const command of ['resolve', 'source', 'preload', 'skill']) {
+    assert.throws(
+      () =>
+        parseCliArgs([command, 'IDeviceIdleController', '--source-path', core]),
+      /only supported by query and generate/,
+    );
+  }
 });
