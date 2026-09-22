@@ -225,6 +225,9 @@ catalogs:
     prettier:
       specifier: ^3.8.4
       version: 3.8.4
+    skills:
+      specifier: ^1.5.20
+      version: 1.5.20
     tsdown:
       specifier: 0.22.7
       version: 0.22.7
@@ -333,7 +336,7 @@ importers:
         specifier: 'catalog:'
         version: 7.3.0
       skills:
-        specifier: 1.5.20
+        specifier: 'catalog:'
         version: 1.5.20
 
   api-parser:

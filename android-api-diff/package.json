@@ -42,6 +42,6 @@
   "dependencies": {
     "@android-cs/api-query": "workspace:*",
     "p-limit": "catalog:",
-    "skills": "1.5.20"
+    "skills": "catalog:"
   }
 }

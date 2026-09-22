@@ -18,6 +18,7 @@ catalog:
   normalize.css: ^8.0.1
   p-limit: ^7.3.0
   prettier: ^3.8.4
+  skills: ^1.5.20
   tsdown: 0.22.7
   typescript: ^6.0.3
   unocss: ^66.7.2
