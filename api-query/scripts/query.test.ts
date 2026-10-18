@@ -1249,4 +1249,57 @@ public final class ServiceManager {
   );
 }
 
+{
+  const expression = "('_'<<24)|('C'<<16)|('M'<<8)|'D'";
+  const makeRuntime = (
+    nextExpression = expression,
+  ): AndroidApiQueryRuntime => ({
+    loadAidlJavaFiles: async () => ['core/java/android/os/IBinder.java'],
+    loadAndroidVersionList: async () => [
+      {
+        version: '13',
+        alias: 'TIRAMISU',
+        apiVersion: 33,
+        tags: ['android-13.0.0_r1', 'android-13.0.0_r2'],
+        futureTags: [],
+      },
+    ],
+    fetchText: async (url) => `package android.os; public interface IBinder {
+      int SHELL_COMMAND_TRANSACTION = ${url.includes('_r2/') ? nextExpression : expression};
+    }`,
+  });
+  const stable = await queryAndroidApi(makeRuntime(), {
+    apiName: 'IBinder.SHELL_COMMAND_TRANSACTION',
+  });
+  assert.equal(stable.summary.checkedTags, 2);
+  assert.ok(renderAndroidApiCode(stable).code.includes(`= ${expression};`));
+  const formattedExpression =
+    "('_' << 24) /* command */ | ('C' << 16) |\n('M' << 8) | 'D'";
+  const formatted = await queryAndroidApi(makeRuntime(formattedExpression), {
+    apiName: 'IBinder.SHELL_COMMAND_TRANSACTION',
+  });
+  assert.equal(formatted.overloads[0]!.ranges.length, 2);
+  assert.doesNotMatch(renderAndroidApiCode(formatted).code, /RemapStub/);
+  assert.ok(
+    renderAndroidApiCode(formatted).code.includes(`= ${formattedExpression};`),
+  );
+  const changed = await queryAndroidApi(makeRuntime('42'), {
+    apiName: 'IBinder.SHELL_COMMAND_TRANSACTION',
+  });
+  assert.equal(changed.overloads[0]!.ranges.length, 2);
+  assert.match(renderAndroidApiCode(changed).code, /RemapStub.value/);
+
+  const aidlRuntime: AndroidApiQueryRuntime = {
+    ...makeRuntime(),
+    loadAidlJavaFiles: async () => ['core/java/android/os/IExample.aidl'],
+    fetchText: async (url) => `package android.os; interface IExample {
+      const int FLAG = ${url.includes('_r2/') ? '1 /* flag */ <<\n 4' : '1<<4'};
+    }`,
+  };
+  const aidl = await queryAndroidApi(aidlRuntime, { apiName: 'IExample.FLAG' });
+  assert.equal(aidl.summary.checkedTags, 2);
+  assert.doesNotMatch(renderAndroidApiCode(aidl).code, /RemapStub/);
+  assert.ok(renderAndroidApiCode(aidl).code.includes('= 1 /* flag */ <<\n 4;'));
+}
+
 console.log('query tests passed');

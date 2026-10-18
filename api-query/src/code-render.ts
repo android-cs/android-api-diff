@@ -1,3 +1,4 @@
+import { getJavaConstantExpressionKey } from '@android-cs/api-parser';
 import type {
   ClassMember,
   ClassMemberParam,
@@ -378,6 +379,9 @@ export const toAndroidApiMemberResult = (
     name: member.name,
     type: member.type,
     imports: [...member.imports],
+    ...(member.kind === 'constant' && member.initializer !== undefined
+      ? { initializer: member.initializer }
+      : {}),
     ...(member.isStatic ? { isStatic: true } : {}),
     ...(member.fieldNullability
       ? { fieldNullability: member.fieldNullability }
@@ -1040,6 +1044,17 @@ const formatConstructorDeclaration = (
   )}`;
 };
 
+const getConstantInitializer = (member: AndroidApiMemberResult) => {
+  if (
+    member.kind !== 'constant' ||
+    !primitiveTypeNames.has(member.type) ||
+    member.type === 'void' ||
+    !member.initializer?.trim()
+  )
+    return undefined;
+  return member.initializer;
+};
+
 const formatFieldDeclaration = (
   member: Extract<AndroidApiMemberResult, { kind: 'field' | 'constant' }>,
   level: number,
@@ -1053,11 +1068,14 @@ const formatFieldDeclaration = (
       ? 'public static '
       : 'public ';
   const initializer = inInterface
-    ? ` = ${getGeneratedName(
-        'RemapStub',
-        'li.songe.remap.RemapStub',
-        conflictingNames,
-      )}.value()`
+    ? ` = ${
+        getConstantInitializer(member) ??
+        `${getGeneratedName(
+          'RemapStub',
+          'li.songe.remap.RemapStub',
+          conflictingNames,
+        )}.value()`
+      }`
     : '';
   return `${indent(level)}${prefix}${formatAnnotatedType(
     member.type,
@@ -1445,7 +1463,9 @@ const collectImports = (
   if (
     inInterface &&
     declarations.some(
-      ({ member }) => member.kind === 'field' || member.kind === 'constant',
+      ({ member }) =>
+        (member.kind === 'field' || member.kind === 'constant') &&
+        getConstantInitializer(member) === undefined,
     )
   ) {
     addImport(imports, packageName, 'li.songe.remap.RemapStub');
@@ -1647,8 +1667,46 @@ export const renderAndroidApiCodeWithMemberCode = (
 ): AndroidApiCodeResult & { memberCode: string } => {
   const ranges = result.ranges;
   const baselineApiVersion = ranges[0]?.fromApiVersion;
+  const expressionKeys = new Map<string, string | undefined>();
+  const getExpressionKey = (member: AndroidApiMemberResult) => {
+    const initializer = getConstantInitializer(member);
+    if (initializer === undefined) return undefined;
+    if (!expressionKeys.has(initializer)) {
+      expressionKeys.set(
+        initializer,
+        getJavaConstantExpressionKey(initializer),
+      );
+    }
+    return expressionKeys.get(initializer);
+  };
   const lifecycleDeclarations = collectDeclarations(
-    result.overloads,
+    result.overloads.map((overload) => {
+      const members = overload.ranges.flatMap((range) =>
+        range.member ? [range.member] : [],
+      );
+      const first = members[0];
+      const firstKey = first && getExpressionKey(first);
+      const stable =
+        first?.kind === 'constant' &&
+        firstKey !== undefined &&
+        members.every(
+          (member) =>
+            member.kind === 'constant' &&
+            member.type === first.type &&
+            getExpressionKey(member) === firstKey,
+        );
+      if (stable) return overload;
+      // Clear unsupported/unstable expressions before declaration merging so
+      // both field rendering and import collection take the RemapStub fallback.
+      return {
+        ...overload,
+        ranges: overload.ranges.map((range) => {
+          if (range.member?.kind !== 'constant') return range;
+          const { initializer, ...member } = range.member;
+          return { ...range, member };
+        }),
+      };
+    }),
     result.imports,
   );
   const hasComplexDeclarationLifecycle = hasComplexLifecycle(

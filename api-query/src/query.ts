@@ -27,8 +27,8 @@ import type {
 import { normalizeAndroidSourceFilePath } from './source.ts';
 import { getMirrorContentUrl } from './url.ts';
 
-export const STRUCT_CACHE_VERSION = 'struct:v11';
-export const QUERY_CACHE_VERSION = 'query:v27';
+export const STRUCT_CACHE_VERSION = 'struct:v12';
+export const QUERY_CACHE_VERSION = 'query:v28';
 const DEFAULT_CONCURRENCY = 3;
 const MAX_STRUCT_CONTENT_ENTRIES = 256;
 
@@ -257,6 +257,9 @@ const toResultMember = (member: ClassMember): AndroidApiMemberResult => {
     name: member.name,
     type: member.type,
     imports: [...member.imports],
+    ...(member.kind === 'constant' && member.initializer !== undefined
+      ? { initializer: member.initializer }
+      : {}),
     ...(member.isStatic ? { isStatic: true } : {}),
     ...(member.fieldNullability
       ? { fieldNullability: member.fieldNullability }
@@ -285,6 +288,7 @@ const toSemanticMember = (member: AndroidApiMemberResult) => {
     name: member.name,
     type: member.type,
     imports: member.imports,
+    ...('initializer' in member ? { initializer: member.initializer } : {}),
     ...('isStatic' in member && member.isStatic ? { isStatic: true } : {}),
     ...('returnType' in member ? { returnType: member.returnType } : {}),
     ...('isAbstract' in member && member.isAbstract

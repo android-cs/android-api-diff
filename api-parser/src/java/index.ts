@@ -456,27 +456,35 @@ export const parseJavaFile = (text: string): ApiFile => {
     });
   };
   listener.enterConstDeclaration = (ctx) => {
-    const id = ctx.constantDeclarator(0).identifier();
-    const name = id.getText();
-    const annotations = getAncestorModifierAnnotations(ctx);
-    const typeCtx = ctx.typeType();
-    const typeInfo = getTypeInfo(typeCtx, annotations);
-    addMember({
-      kind: 'constant',
-      name,
-      type: typeInfo.type,
-      loc: id.start.line,
-      imports: resolveImports([
-        typeInfo.type,
-        ...getSignatureAnnotationTexts([
-          ...annotations,
-          ...typeCtx.annotation_list(),
+    for (const declarator of ctx.constantDeclarator_list()) {
+      const id = declarator.identifier();
+      const expression = declarator.variableInitializer();
+      const initializer = text.slice(
+        expression.start.start,
+        expression.stop!.stop + 1,
+      );
+      const name = id.getText();
+      const annotations = getAncestorModifierAnnotations(ctx);
+      const typeCtx = ctx.typeType();
+      const typeInfo = getTypeInfo(typeCtx, annotations);
+      addMember({
+        kind: 'constant',
+        initializer,
+        name,
+        type: typeInfo.type + '[]'.repeat(declarator.LBRACK_list().length),
+        loc: id.start.line,
+        imports: resolveImports([
+          typeInfo.type,
+          ...getSignatureAnnotationTexts([
+            ...annotations,
+            ...typeCtx.annotation_list(),
+          ]),
         ]),
-      ]),
-      ...(typeInfo.nullability
-        ? { fieldNullability: typeInfo.nullability }
-        : {}),
-    });
+        ...(typeInfo.nullability
+          ? { fieldNullability: typeInfo.nullability }
+          : {}),
+      });
+    }
   };
   ParseTreeWalker.DEFAULT.walk(listener, result);
   clearUseless();

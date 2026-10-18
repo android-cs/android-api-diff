@@ -105,6 +105,7 @@ export interface AndroidApiQueryProgress {
 export type AndroidApiMemberResult =
   | {
       kind: 'field' | 'constant';
+      initializer?: string;
       name: string;
       type: string;
       imports: number[];

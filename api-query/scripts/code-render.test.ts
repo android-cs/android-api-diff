@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
+import { parseJavaFile, parseAIDLFile } from '@android-cs/api-parser';
 import {
   renderAndroidApiCode,
+  toAndroidApiMemberResult,
   renderAndroidApiCodeWithMemberCode,
 } from '../src/code-render.ts';
 import {
@@ -1284,6 +1286,124 @@ const baseResult = (
     /\/\/ 13\.0\.0_r2 - 13\.0\.0_r15, 15\n\s+public String getValue\(\)/,
   );
   assert.doesNotMatch(result.code, /\/\/ 13, 15/);
+}
+
+// Parse the actual AOSP expression before exercising range normalization/rendering.
+{
+  const expression = "('_'<<24)|('C'<<16)|('M'<<8)|'D'";
+  const parsed = parseJavaFile(`package android.os; public interface IBinder {
+    int SHELL_COMMAND_TRANSACTION = ${expression};
+    int SECOND = 2, THIRD = 3;
+    int ARRAY[] = {1};
+  }`);
+  const members = parsed.structs[0]!.members.map(toAndroidApiMemberResult);
+  assert.equal(members.length, 4);
+  assert.equal(members[3]!.type, 'int[]');
+  const shell = members[0]!;
+  const render = (definitions: AndroidApiMemberResult[]) =>
+    renderAndroidApiCodeWithMemberCode(
+      baseResult(
+        'IBinder.SHELL_COMMAND_TRANSACTION',
+        'core/java/android/os/IBinder.java',
+        ['IBinder', 'SHELL_COMMAND_TRANSACTION'],
+        definitions.map((member, index) =>
+          range(
+            String(8 + index),
+            '',
+            26 + index,
+            `android-${8 + index}.0.0_r1`,
+            [member],
+          ),
+        ),
+        [{ name: 'IBinder', kind: 'interface', isHidden: false }],
+      ),
+    );
+  const stable = render([shell, { ...shell }]);
+  assert.equal(
+    stable.memberCode,
+    `    int SHELL_COMMAND_TRANSACTION = ${expression};`,
+  );
+  assert.doesNotMatch(stable.code, /RemapStub/);
+  const formattedExpression =
+    "('_' << 24) /* command */ | ('C' << 16) |\n('M' << 8) | 'D'";
+  const formatted = render([
+    shell,
+    { ...shell, initializer: formattedExpression } as AndroidApiMemberResult,
+  ]);
+  assert.doesNotMatch(formatted.code, /RemapStub/);
+  assert.ok(formatted.code.includes(`= ${formattedExpression};`));
+  for (const [left, right] of [
+    ['16', '0x10'],
+    ['16', '1 << 4'],
+    ['20', '7'], // WindowManager.TRANSIT_KEYGUARD_GOING_AWAY
+    ['0x1', '(1 << 0)'], // WindowManager transition flag spelling change
+    ["' '", "'\\t'"],
+    ['1 + +2', '1++ + 2'],
+    ['1 - -2', '1-- - 2'],
+    ['"a b" == "a b"', '"ab" == "ab"'],
+  ]) {
+    assert.match(
+      render([
+        { ...shell, initializer: left } as AndroidApiMemberResult,
+        { ...shell, initializer: right } as AndroidApiMemberResult,
+      ]).code,
+      /RemapStub.value/,
+    );
+  }
+  assert.match(
+    render([shell, { ...shell, initializer: '42' } as AndroidApiMemberResult])
+      .code,
+    /RemapStub.value/,
+  );
+  assert.match(
+    render([constant('int', shell.name), shell]).code,
+    /RemapStub.value/,
+  );
+  for (const [type, initializer] of [
+    ['boolean', 'true'],
+    ['byte', '(byte) 0x7f'],
+    ['short', '(short) 1'],
+    ['char', "'A'"],
+    ['int', '1 << 4'],
+    ['long', '0xffL'],
+    ['float', '1.5f'],
+    ['double', '1e-3'],
+  ]) {
+    const member = { ...constant(type), initializer } as AndroidApiMemberResult;
+    assert.doesNotMatch(render([member]).code, /RemapStub/);
+    assert.ok(render([member]).code.includes(`= ${initializer};`));
+  }
+  for (const [type, initializer] of [
+    ['String', '"value"'],
+    ['Integer', '1'],
+    ['int[]', '{1}'],
+    ['int', 'getValue()'],
+    ['int', 'OTHER_FLAG | 1'],
+    ['int', ''],
+  ]) {
+    assert.match(
+      render([{ ...constant(type), initializer } as AndroidApiMemberResult])
+        .code,
+      /RemapStub.value/,
+    );
+  }
+  const aidl = parseAIDLFile(
+    'interface IExample { const int FLAG = (1 << 2); }',
+  );
+  assert.equal(
+    (aidl.structs[0]!.members[0] as { initializer?: string }).initializer,
+    '(1 << 2)',
+  );
+  const classResult = renderAndroidApiCode(
+    baseResult(
+      'Example.FLAG',
+      'core/java/android/os/Example.java',
+      ['Example', 'FLAG'],
+      [range('8', 'O', 26, 'android-8.0.0_r1', [shell])],
+      [{ name: 'Example', kind: 'class', isHidden: true }],
+    ),
+  );
+  assert.doesNotMatch(classResult.code, / = /);
 }
 
 console.log('code-render tests passed');

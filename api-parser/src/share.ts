@@ -22,6 +22,7 @@ export interface ClassFieldMember extends ClassMemberBase {
 
 export interface ClassConstantMember extends ClassMemberBase {
   kind: 'constant';
+  initializer?: string;
   fieldNullability?: Nullability;
 }
 

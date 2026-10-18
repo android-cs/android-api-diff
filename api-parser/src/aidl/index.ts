@@ -189,6 +189,10 @@ export const parseAIDLFile = (text: string): ApiFile => {
     const typeInfo = getTypeInfo(declaration.type_(), annotations);
     addMember({
       kind: 'constant',
+      initializer: text.slice(
+        declaration.expression().start.start,
+        declaration.expression().stop!.stop + 1,
+      ),
       name: id.getText(),
       type: typeInfo.type,
       loc: id.symbol.line,

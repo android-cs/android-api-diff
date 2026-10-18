@@ -1,6 +1,6 @@
 {
   "name": "@android-cs/api-parser",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "repository": {
     "type": "git",
@@ -24,6 +24,7 @@
     "build": "tsdown",
     "prepublishOnly": "tsdown",
     "test:nullability": "node scripts/nullability.test.ts",
+    "test:constant-expression": "node scripts/constant-expression.test.ts",
     "type-check": "tsc"
   },
   "exports": {
