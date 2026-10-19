@@ -11,22 +11,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/setup@v3
 
       - run: pnpm install
 
-      - name: Build web
-        run: pnpm build
+      - run: pnpm build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: nwtgck/actions-netlify@v3
+      - uses: nwtgck/actions-netlify@v4
         with:
           publish-dir: ./web/dist
           production-branch: main
